@@ -3,6 +3,7 @@
 package darwin
 
 import (
+	"context"
 	"time"
 
 	"go.uber.org/zap"
@@ -17,6 +18,10 @@ const (
 	primingRetryCount = 10
 	primingRetryDelay = 100 * time.Millisecond
 	maxPrimingDepth   = 10
+	// maxPrimingNodes caps how many elements one walk takes from the
+	// application. A tree with this many elements has been built, whatever
+	// roles it holds, so reaching the cap counts as ready.
+	maxPrimingNodes = 2000
 )
 
 // readyRoles are the AX roles whose presence means the Chromium/Gecko
@@ -45,8 +50,9 @@ var menuRoles = map[string]struct{}{
 }
 
 // PrimeApplication warms an application's accessibility tree so the first hint
-// scan does not pay for a cold one. It reports whether the tree became ready.
-func PrimeApplication(bundleID string, logger *zap.Logger) bool {
+// scan does not pay for a cold one. It reports whether the tree became ready,
+// and gives up as soon as ctx is done.
+func PrimeApplication(ctx context.Context, bundleID string, logger *zap.Logger) bool {
 	app := ApplicationByBundleID(bundleID)
 	if app == nil {
 		logger.Debug("Application not found for bundle ID", zap.String("bundle_id", bundleID))
@@ -55,22 +61,31 @@ func PrimeApplication(bundleID string, logger *zap.Logger) bool {
 	}
 	defer app.Release()
 
-	return waitForAccessibility(app, logger)
+	return waitForAccessibility(ctx, app, logger)
 }
 
-func waitForAccessibility(app *Element, logger *zap.Logger) bool {
+func waitForAccessibility(ctx context.Context, app *Element, logger *zap.Logger) bool {
 	for range primingRetryCount {
-		if hasUsableAccessibilityTree(app, logger) {
+		if hasUsableAccessibilityTree(ctx, app, maxPrimingNodes, logger) {
 			return true
 		}
 
-		time.Sleep(primingRetryDelay)
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(primingRetryDelay):
+		}
 	}
 
 	return false
 }
 
-func hasUsableAccessibilityTree(root *Element, logger *zap.Logger) bool {
+func hasUsableAccessibilityTree(
+	ctx context.Context,
+	root *Element,
+	budget int,
+	logger *zap.Logger,
+) bool {
 	if root == nil {
 		return false
 	}
@@ -81,6 +96,11 @@ func hasUsableAccessibilityTree(root *Element, logger *zap.Logger) bool {
 	}
 
 	queue := []entry{{root, 0}}
+	// The children graph is not always a tree. An application can list an
+	// element under more than one parent, or under its own descendant. A hash
+	// collision only skips an element, and the next poll walks again.
+	visited := make(map[uint64]struct{})
+	taken := 0
 
 	// Children() hands over retained AXUIElementRefs; release everything this
 	// walk enqueues, but not the caller-owned root.
@@ -104,6 +124,24 @@ func hasUsableAccessibilityTree(root *Element, logger *zap.Logger) bool {
 
 		if cur.el == nil {
 			continue
+		}
+
+		if ctx.Err() != nil {
+			releaseVisited(cur.el)
+			drainQueue()
+
+			return false
+		}
+
+		hash, hashErr := cur.el.Hash()
+		if hashErr == nil {
+			if _, seen := visited[hash]; seen {
+				releaseVisited(cur.el)
+
+				continue
+			}
+
+			visited[hash] = struct{}{}
 		}
 
 		info, err := cur.el.Info()
@@ -142,6 +180,16 @@ func hasUsableAccessibilityTree(root *Element, logger *zap.Logger) bool {
 
 		if childrenErr != nil {
 			continue
+		}
+
+		taken += len(children)
+		if taken > budget {
+			logger.Debug("Accessibility tree reached the priming node budget",
+				zap.Int("budget", budget))
+			ReleaseAll(children)
+			drainQueue()
+
+			return true
 		}
 
 		for _, child := range children {
