@@ -342,6 +342,11 @@ type CustomModeConfig struct {
 	// hides the indicator.
 	Indicator string `json:"indicator" toml:"indicator"`
 
+	// UnboundKeys says what happens to a key the mode does not bind:
+	// UnboundKeysConsume (also the empty default) swallows it, UnboundKeysPass
+	// hands it to the focused application and keeps the mode open.
+	UnboundKeys string `json:"unboundKeys" toml:"unbound_keys"`
+
 	AppConfigs []AppConfig `json:"appConfigs" toml:"app_configs"`
 
 	Hotkeys map[string]StringOrStringArray `json:"hotkeys" toml:"-"`

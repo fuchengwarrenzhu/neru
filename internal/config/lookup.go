@@ -203,6 +203,12 @@ func (c *Config) CustomModeIndicators() map[string]string {
 	return labels
 }
 
+// PassesUnboundKeys reports whether the declared mode hands the keys it does
+// not bind to the focused application rather than swallowing them.
+func (m CustomModeConfig) PassesUnboundKeys() bool {
+	return m.UnboundKeys == UnboundKeysPass
+}
+
 // HasAppHotkeyOverrides reports whether any [[modes.<name>.app_configs]] entry
 // has a non-empty Hotkeys map. While it is false the focused app cannot change
 // what the mode binds, which is what lets the keymap settle without asking

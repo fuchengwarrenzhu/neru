@@ -50,6 +50,17 @@ type EventTapPort interface {
 	Destroy()
 }
 
+// UnboundKeyPassthrough is an optional EventTapPort extension: whether a key
+// the active mode does not bind, bare keys included, reaches the focused
+// application instead of the mode. The keys it binds are the blacklist
+// SetModifierPassthrough already carries, so the two always describe the same
+// set. A tap passing a key that way reports it in order with the keys it
+// dispatches (keyvocab.PassthroughEvent). Implemented by the macOS tap; a
+// backend without it keeps swallowing bare keys.
+type UnboundKeyPassthrough interface {
+	SetUnboundKeyPassthrough(enabled bool)
+}
+
 // OverlayKeyboardPassthroughReporter is an optional EventTapPort extension:
 // whether an indicator overlay may drop exclusive keyboard capture so scroll
 // reaches the focused app. Only the event tap can answer it — it needs a

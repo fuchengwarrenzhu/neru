@@ -271,14 +271,26 @@ indicator = "Window"
 - **Leaving.** `Escape` is bound to `idle` by default (`"Escape" = "__disabled__"`
   removes it). Any binding ending in `idle` or another mode also leaves. Unbound
   Ctrl/Alt/Cmd chords fall back to `[hotkeys]`, see
-  [Which binding wins](../concepts/bindings.md#which-binding-wins), and
-  unbound bare keys are swallowed.
+  [Which binding wins](../concepts/bindings.md#which-binding-wins).
+- **Unbound keys.** By default a key the mode does not bind is swallowed. With
+  `unbound_keys = "pass"` it goes to the focused application unchanged and the
+  mode stays open, so the mode works as a layer over normal typing: `Space`,
+  `Delete`, letters and editing shortcuts reach the app, and only the keys the
+  mode binds are taken. What counts as bound is exactly what the mode answers:
+  its table with any [per-app overrides](#declared-mode-per-app-config), the
+  `[hotkeys]` chords it falls back to, and the first key of each two-key
+  sequence. Unbound chords pass whatever
+  [`passthrough_unbounded_keys`](#general) says, and
+  `should_exit_after_passthrough` does not close the mode. A key passed this way
+  ends a sequence the mode was waiting to complete: `g`, a passed `x`, then `g`
+  is not `gg`. macOS only.
 
 ### Declared mode options
 
 | Option      | Type   | Default                 | Description                                                                    |
 | ----------- | ------ | ----------------------- | ------------------------------------------------------------------------------ |
 | `indicator` | string | `""`                    | [Mode indicator](#mode_indicator) text while the mode is open, empty hides it  |
+| `unbound_keys` | string | `"consume"`          | `"consume"` swallows keys the mode does not bind, `"pass"` hands them to the app and stays open (macOS) |
 | `hotkeys`   | map    | `{ "Escape" = "idle" }` | The mode's [hotkeys](#per-mode-hotkeys), merged over the default               |
 
 The name is the table key: letters, digits, `_` and `-`, starting with a

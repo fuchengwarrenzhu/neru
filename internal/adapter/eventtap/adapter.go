@@ -161,6 +161,25 @@ func (a *Adapter) SetPassthroughCallback(callback func()) {
 	a.tap.SetPassthroughCallback(callback)
 }
 
+// SetUnboundKeyPassthrough lets the keys the active mode does not bind, bare
+// keys included, through to the focused application (ports.UnboundKeyPassthrough).
+// A backend that cannot keeps swallowing bare keys.
+func (a *Adapter) SetUnboundKeyPassthrough(enabled bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	if a.destroyed {
+		return
+	}
+
+	passer, ok := a.tap.(tap.UnboundKeyPasser)
+	if !ok {
+		return
+	}
+
+	passer.SetUnboundKeyPassthrough(enabled)
+}
+
 // SetStickyModifierToggle enables or disables sticky modifier toggle detection.
 func (a *Adapter) SetStickyModifierToggle(enabled bool) {
 	a.mu.Lock()

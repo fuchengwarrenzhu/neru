@@ -92,6 +92,18 @@ func (h *handlerState) setPassthroughCallback(callback func()) {
 	h.eventTap.SetPassthroughCallback(callback)
 }
 
+// setUnboundKeyPassthrough lets bare keys the passthrough blacklist does not
+// name reach the focused application, on a tap that can
+// (ports.UnboundKeyPassthrough). One that cannot keeps swallowing them.
+func (h *handlerState) setUnboundKeyPassthrough(enabled bool) {
+	passer, ok := h.eventTap.(ports.UnboundKeyPassthrough)
+	if !ok {
+		return
+	}
+
+	passer.SetUnboundKeyPassthrough(enabled)
+}
+
 // setStickyModifierToggle enables or disables sticky modifier detection.
 func (h *handlerState) setStickyModifierToggle(enabled bool) {
 	if h.eventTap == nil {

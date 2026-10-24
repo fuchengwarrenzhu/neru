@@ -1186,6 +1186,9 @@
           },
           "indicator": {
             "type": "string"
+          },
+          "unbound_keys": {
+            "type": "string"
           }
         },
         "type": "object"

@@ -86,6 +86,13 @@ void NeruSetEventTapModifierPassthrough(EventTap tap, int enabled, const char **
 /// @param count Number of keys
 void NeruSetEventTapInterceptedModifierKeys(EventTap tap, const char **keys, int count);
 
+/// Let bare keys the passthrough blacklist does not name reach macOS. Each one
+/// passed is reported through the key callback as "__passthrough", with no key
+/// identity, so it stays ordered with the keys the tap dispatches.
+/// @param tap Event tap handle
+/// @param enabled Non-zero to pass unbound bare keys, zero to consume them
+void NeruSetEventTapUnboundKeyPassthrough(EventTap tap, int enabled);
+
 /// Set callback invoked when a modifier shortcut passes through to macOS.
 /// The callback is delivered asynchronously after the passthrough is observed.
 /// @param tap Event tap handle

@@ -33,6 +33,7 @@ type MockEventTapPort struct {
 	passthroughEnabled      bool
 	passthroughBlacklist    []string
 	passthroughCallback     func()
+	unboundKeyPassthrough   bool
 	stickyModifierToggle    bool
 	keyboardLayout          string
 	destroyed               bool
@@ -178,6 +179,30 @@ func (m *MockEventTapPort) Destroy() {
 	m.destroyed = true
 }
 
+// SetUnboundKeyPassthrough implements ports.UnboundKeyPassthrough.
+func (m *MockEventTapPort) SetUnboundKeyPassthrough(enabled bool) {
+	m.mu.Lock()
+	m.unboundKeyPassthrough = enabled
+	m.mu.Unlock()
+
+	if enabled {
+		m.record("pass_unbound_keys")
+
+		return
+	}
+
+	m.record("consume_unbound_keys")
+}
+
+// UnboundKeyPassthrough returns the last value passed to
+// SetUnboundKeyPassthrough.
+func (m *MockEventTapPort) UnboundKeyPassthrough() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.unboundKeyPassthrough
+}
+
 // PostedModifiers returns the modifiers passed to PostModifierEvent, in order.
 func (m *MockEventTapPort) PostedModifiers() []string {
 	m.mu.Lock()
@@ -222,7 +247,10 @@ func (m *MockEventTapPort) Destroyed() bool {
 }
 
 // Ensure MockEventTapPort implements ports.EventTapPort.
-var _ ports.EventTapPort = (*MockEventTapPort)(nil)
+var (
+	_ ports.EventTapPort          = (*MockEventTapPort)(nil)
+	_ ports.UnboundKeyPassthrough = (*MockEventTapPort)(nil)
+)
 
 // SetOnCall installs the call log hook after construction, for a test that
 // starts recording partway through — say, once the calls a fixture made on the

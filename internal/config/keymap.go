@@ -214,6 +214,13 @@ func (k Keymap) Bindings() []Binding {
 	return bindings
 }
 
+// SequenceStarts returns the first key of every two-keystroke binding, sorted.
+// A tap that passes unbound keys to the focused application has to keep these,
+// or the sequences they start could never be completed.
+func (k Keymap) SequenceStarts() []string {
+	return slices.Sorted(maps.Keys(k.sequenceStarts))
+}
+
 // Keys returns every key the keymap binds, in the spelling it was written in
 // and in a stable order. It is what the modifier-passthrough lists are built
 // from: the event tap has to be told which keys the mode answers to, in the

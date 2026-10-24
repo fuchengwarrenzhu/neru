@@ -96,6 +96,12 @@ func (h *handlerState) handleKeyPress(key string) {
 		return
 	}
 
+	if key == keyvocab.PassthroughEvent {
+		h.notePassedKey()
+
+		return
+	}
+
 	// Suppress macOS native key repeats when a custom held-key repeat is active.
 	// The custom goroutine handles repeat dispatch at heldRepeatInterval.
 	// heldRepeatingKey stores the sticky-stripped key, so we strip before comparing.
@@ -170,6 +176,31 @@ func (h *handlerState) handleKeyPress(key string) {
 	}
 
 	h.handleModeSpecificKey(key)
+}
+
+// notePassedKey answers keyvocab.PassthroughEvent: the tap handed a key to the
+// focused application instead of this mode. The key still happened, so it does
+// to the mode's own state what any other key does. A sequence waiting for its
+// second key ends, so "g", a passed "x", then "g" never completes "gg" (the
+// first "g" was consumed as a sequence start, exactly as without passthrough,
+// and the "x" went to the application). A modifier tapped alone is no longer
+// alone, so it neither toggles sticky nor counts as a tap. Nothing else moves:
+// no input reaches hints, grid or search, and a held glide or repeat keeps
+// running, because the passed key is not the one being held.
+//
+// The marker comes through the dispatcher that delivers keys, so it lands after
+// every key the tap dispatched before it and before every key after. A key the
+// tap never sees — one taken by a registered global hotkey's own tap, or text
+// an application inserts without key events — sends no marker and leaves the
+// sequence as it was.
+//
+// Caller must hold h.mu.
+func (h *handlerState) notePassedKey() {
+	h.hotkeyLastKey = ""
+	h.hotkeyLastKeyTime = 0
+
+	h.markHeldModifiersUsedInChord()
+	h.cancelPendingModifierToggle()
 }
 
 // handleModeSpecificKey handles mode-specific key processing.
