@@ -4,6 +4,16 @@ This file is the shared source of truth for any AI agent working on this repo (C
 
 Neru is a keyboard-driven, mouse-free navigation tool (hints / grid / recursive grid / scroll modes) written in Go, with native bridges per platform (Objective-C on macOS, X11/Wayland/evdev on Linux, Win32 on Windows). macOS is the primary platform; Linux and Windows are partially supported.
 
+## Warren's Fork: Philosophy
+
+This is a long-lived extension of upstream Neru. Keep the fork small and maintainable; preserve these rules during upstream syncs.
+
+- **Configuration first.** Use existing settings, commands, macros, bindings, and declared modes wherever they satisfy the request. Check the implementation and effective configuration before proposing code. Do not rebuild behavior Neru already provides.
+- **Extend only a demonstrated gap.** Before a source change, state what existing capability was checked and why it cannot deliver the requested behavior. Make the smallest extension in the existing owner; avoid replacement subsystems, parallel event monitors, and unrelated features.
+- **One source of truth.** Derive behavior and help from the effective configuration and existing command definitions. Reuse motion, repeat, input, and mode-lifecycle owners rather than copying their logic or maintaining a second binding table.
+- **Personal preferences stay in configuration.** Keep Warren's shortcuts, speed/ramp tuning, and mode choices in his user config; do not bake them into upstream defaults. Prefer an existing option over a new one.
+- **Keep upstream updates practical.** Preserve upstream structure and behavior outside the requested change, keep diffs focused, and verify the user-visible result. Distinguish configured behavior from necessary extensions and unfinished runtime verification.
+
 ## Warren's Fork: Upstream Security Review
 
 Every upstream sync (merge, rebase, or cherry-pick) requires a security review before adopting or installing the result. Preserve this rule when resolving upstream changes to this file.
