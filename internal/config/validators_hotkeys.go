@@ -9,6 +9,7 @@ import (
 
 	"github.com/y3owk1n/neru/internal/derrors"
 	"github.com/y3owk1n/neru/internal/domain/action"
+	"github.com/y3owk1n/neru/internal/domain/keyvocab"
 	"github.com/y3owk1n/neru/internal/domain/modecmd"
 )
 
@@ -100,11 +101,14 @@ func (c *Config) ValidateHotkeys() error {
 	return c.checkHotkeysConflicts()
 }
 
+// validateHotkeyTable checks a hotkey table read the way a mode's is: the
+// mode's own, an app_configs entry's, or a global app_configs entry's. The
+// global ones are refused the mouse buttons by validateHotkeysAppConfigs.
 func validateHotkeyTable(fieldPrefix string, table map[string]StringOrStringArray) error {
 	for key, actions := range table {
 		fieldName := fmt.Sprintf("%s.%s", fieldPrefix, key)
 
-		err := ValidateHotkey(key, fieldName)
+		err := validateModeHotkey(key, fieldName)
 		if err != nil {
 			return err
 		}
@@ -317,6 +321,17 @@ func checkHotkeyConflicts(
 	}
 
 	return nil
+}
+
+// validateModeHotkey is ValidateHotkey plus the bare mouse buttons, which only
+// a mode may bind: the macOS mode tap is what reports a click, and nothing
+// listens for one while no mode is active.
+func validateModeHotkey(hotkey, fieldName string) error {
+	if keyvocab.IsMouseButton(hotkey) {
+		return nil
+	}
+
+	return ValidateHotkey(hotkey, fieldName)
 }
 
 // ValidateHotkey validates hotkey format (single key, named key, modifier combo, or 2-letter sequence).

@@ -6,6 +6,7 @@ import (
 
 	"github.com/y3owk1n/neru/internal/derrors"
 	"github.com/y3owk1n/neru/internal/domain"
+	"github.com/y3owk1n/neru/internal/domain/keyvocab"
 )
 
 // AppConfigFieldValidator is a callback for validating mode-specific fields in AppConfig.
@@ -186,8 +187,26 @@ func validateScrollAppConfigs(modeName string, appConfigs []AppConfig) error {
 }
 
 // validateHotkeysAppConfigs validates per-app global hotkey configuration.
+// These merge over [hotkeys], so they are refused the mouse buttons [hotkeys]
+// is refused: no global hotkey backend can see a click.
 func validateHotkeysAppConfigs(modeName string, appConfigs []AppConfig) error {
-	return validateAppConfigsWithCallback(modeName, appConfigs, nil)
+	return validateAppConfigsWithCallback(
+		modeName,
+		appConfigs,
+		func(idx int, appConfig *AppConfig) error {
+			for key := range appConfig.Hotkeys {
+				if keyvocab.IsMouseButton(key) {
+					return derrors.Newf(
+						derrors.CodeInvalidConfig,
+						"%s[%d].hotkeys.%s: a mouse button binds only in a mode's hotkeys",
+						modeName, idx, key,
+					)
+				}
+			}
+
+			return nil
+		},
+	)
 }
 
 // ValidateAppConfigs validates per-app hint configuration.

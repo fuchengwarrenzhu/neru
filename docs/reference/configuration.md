@@ -85,6 +85,7 @@ see [Getting started](../guide/getting-started.md#bind-your-first-hotkey).
 | Named      | `Space`, `Return`, `Enter`, `Escape`, `Tab`, `Delete`, `Backspace`                                    |
 | Navigation | `Up`, `Down`, `Left`, `Right`, `Home`, `End`, `PageUp`, `PageDown`, `Insert` (Linux and Windows only) |
 | Function   | `F1` to `F24` (`F21` to `F24` on Linux and Windows only)                                              |
+| Mouse      | `MouseLeft`, `MouseRight`, `MouseMiddle` (macOS only, [per-mode tables](#per-mode-hotkeys) only)      |
 
 - **Shift with a symbol** is written as the character Shift produces. On
   Linux, `Shift` plus the `;` key is `"Shift+:"`, not `"Shift+;"`. Letters are
@@ -150,6 +151,21 @@ listed in its own section:
 "Down"      = "action move_mouse_relative --dx=0 --dy=10"
 "Left"      = "action move_mouse_relative --dx=-10 --dy=0"
 "Right"     = "action move_mouse_relative --dx=10 --dy=0"
+```
+
+On macOS a mode's table, and its `app_configs` entries, may also bind a
+physical mouse button: `MouseLeft`, `MouseRight` or `MouseMiddle`, written bare.
+The click still reaches the application under the cursor; the binding runs
+beside it, once per press, never as a held repeat. Clicks Neru performs itself,
+such as `action left_click`, do not trigger it. Nothing binds a button by
+default, and `[hotkeys]` cannot, since no mode is listening while you are idle.
+To leave scroll mode when you reach for the mouse:
+
+```toml
+[scroll.hotkeys]
+"MouseLeft"   = "idle"
+"MouseRight"  = "idle"
+"MouseMiddle" = "idle"
 ```
 
 ### Per-app hotkey overrides

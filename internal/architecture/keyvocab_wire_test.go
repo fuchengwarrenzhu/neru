@@ -12,16 +12,17 @@ import (
 // nativeKeyEventEmitters lists the native sources that format the synthetic
 // "__keyup_"/"__modifier_" wire events with printf instead of going through
 // internal/domain/keyvocab (C and Objective-C cannot import it). Each entry
-// names the prefixes that file emits.
+// names the prefixes that file emits, and the macOS tap also the mouse button
+// names it emits for a physical click.
 var nativeKeyEventEmitters = map[string][]string{
 	"internal/adapter/platform/linux/overlay_wayland.c": {
 		keyvocab.KeyUpPrefix,
 		keyvocab.ModifierTogglePrefix,
 	},
-	"internal/adapter/platform/darwin/eventtap_darwin.m": {
-		keyvocab.KeyUpPrefix,
-		keyvocab.ModifierTogglePrefix,
-	},
+	"internal/adapter/platform/darwin/eventtap_darwin.m": append(
+		[]string{keyvocab.KeyUpPrefix, keyvocab.ModifierTogglePrefix},
+		keyvocab.MouseButtons()...,
+	),
 }
 
 // TestNativeKeyEventEmittersMatchKeyvocab pins the two native emitters to the
@@ -38,7 +39,7 @@ func TestNativeKeyEventEmittersMatchKeyvocab(t *testing.T) {
 
 	root := findRepoRoot(t)
 
-	for relPath, prefixes := range nativeKeyEventEmitters {
+	for relPath, spellings := range nativeKeyEventEmitters {
 		content, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(relPath)))
 		if err != nil {
 			t.Errorf(
@@ -51,12 +52,12 @@ func TestNativeKeyEventEmittersMatchKeyvocab(t *testing.T) {
 		}
 
 		source := string(content)
-		for _, prefix := range prefixes {
-			if !strings.Contains(source, prefix) {
+		for _, spelling := range spellings {
+			if !strings.Contains(source, spelling) {
 				t.Errorf(
-					"%s: does not contain wire prefix %q from internal/domain/keyvocab; "+
+					"%s: does not contain wire spelling %q from internal/domain/keyvocab; "+
 						"the native emitter and the Go vocabulary must use the same spelling",
-					relPath, prefix,
+					relPath, spelling,
 				)
 			}
 		}

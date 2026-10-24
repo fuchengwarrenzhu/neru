@@ -11,8 +11,6 @@
 #import <ApplicationServices/ApplicationServices.h>
 #import <stdbool.h>
 
-static const int neruSyntheticEventMarker = 0x1337;
-
 static CGEventFlags flagsForModifiers(int modifiers) {
 	CGEventFlags flags = 0;
 	if (modifiers & ModifierCmd) {
@@ -53,7 +51,7 @@ static int postKeyboardEvent(CGEventSourceRef source, CGKeyCode keyCode, bool is
 	}
 
 	CGEventSetFlags(event, flags);
-	CGEventSetIntegerValueField(event, kCGEventSourceUserData, neruSyntheticEventMarker);
+	CGEventSetIntegerValueField(event, kCGEventSourceUserData, kNeruSyntheticEventMarker);
 	// Go threads have no autorelease pool, and posting autoreleases a CFData.
 	@autoreleasepool {
 		CGEventPost(kCGHIDEventTap, event);
@@ -76,7 +74,7 @@ static int postModifierEvent(CGEventSourceRef source, int modifier, bool isDown,
 
 	CGEventSetType(event, kCGEventFlagsChanged);
 	CGEventSetFlags(event, flags);
-	CGEventSetIntegerValueField(event, kCGEventSourceUserData, neruSyntheticEventMarker);
+	CGEventSetIntegerValueField(event, kCGEventSourceUserData, kNeruSyntheticEventMarker);
 	@autoreleasepool {
 		CGEventPost(kCGHIDEventTap, event);
 	}

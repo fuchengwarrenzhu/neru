@@ -6,6 +6,7 @@ import (
 
 	"github.com/y3owk1n/neru/internal/config"
 	"github.com/y3owk1n/neru/internal/domain"
+	"github.com/y3owk1n/neru/internal/domain/keyvocab"
 )
 
 // The declared mode these journeys enter, and the chord that enters it.
@@ -90,5 +91,28 @@ func TestSimulation_CustomModeSwitchesToABuiltInMode(t *testing.T) {
 	sim.waitMode(domain.ModeScroll)
 
 	sim.press("Escape")
+	sim.waitMode(domain.ModeIdle)
+}
+
+// TestSimulation_PhysicalClickLeavesADeclaredModeThatBindsIt is the journey the
+// mouse buttons exist for: a declared mode that binds MouseLeft to idle is left
+// by a click, the way the macOS mode tap reports one, while the mode's other
+// keys still run their steps until then.
+func TestSimulation_PhysicalClickLeavesADeclaredModeThatBindsIt(t *testing.T) {
+	cfg := simConfigDeclaringAMode()
+
+	mode := cfg.Modes[customModeName]
+	mode.Hotkeys[keyvocab.MouseLeft] = config.StringOrStringArray{"idle"}
+	cfg.Modes[customModeName] = mode
+
+	sim := newSimHarness(t, cfg, nil)
+
+	sim.pressHotkey(customModeHotkey)
+	sim.waitMode(domain.ModeCustom)
+
+	sim.press("j")
+	sim.waitFor("scroll recorded", func() bool { return len(sim.ax.recordedScrolls()) > 0 })
+
+	sim.press(keyvocab.MouseLeft)
 	sim.waitMode(domain.ModeIdle)
 }

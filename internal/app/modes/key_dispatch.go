@@ -96,6 +96,14 @@ func (h *handlerState) handleKeyPress(key string) {
 		return
 	}
 
+	// A physical mouse button arrives as a pseudo-key; the click itself has
+	// already gone on to the application.
+	if keyvocab.IsMouseButton(key) {
+		h.handleMouseButton(key)
+
+		return
+	}
+
 	// Suppress macOS native key repeats when a custom held-key repeat is active.
 	// The custom goroutine handles repeat dispatch at heldRepeatInterval.
 	// heldRepeatingKey stores the sticky-stripped key, so we strip before comparing.
@@ -180,6 +188,42 @@ func (h *handlerState) handleModeSpecificKey(key string) {
 	}
 
 	mode.HandleKey(key)
+}
+
+// handleMouseButton runs the active mode's binding for a physical mouse
+// button, and does nothing else. An unbound button is no mode's input — never
+// a hint label, a grid key or search text — and it cancels no pending
+// sequence or sticky modifier, so a mode that binds no button behaves as if
+// the click had never been seen. Only the mode's own table is asked: a bare
+// key never falls back to [hotkeys]. A button reports no release, so its
+// binding takes the fed path, one discrete dispatch that never starts a held
+// repeat or a glide.
+//
+// Caller must hold h.mu.
+func (h *handlerState) handleMouseButton(key string) {
+	if h.executeActionSequence == nil {
+		return
+	}
+
+	keymap, _ := h.settledKeymaps()
+
+	binding, ok := keymap.Lookup(config.NormalizeKeyForComparison(key))
+	if !ok {
+		return
+	}
+
+	h.hotkeyLastKey = ""
+	h.hotkeyLastKeyTime = 0
+
+	fedPress := h.fedPress
+	h.fedPress = true
+	h.dispatchHotkeyActions(
+		domain.ModeString(h.appState.CurrentMode()),
+		binding.Key,
+		key,
+		binding.Steps,
+	)
+	h.fedPress = fedPress
 }
 
 // activeModeHasAppHotkeyOverrides reports whether the active mode defines any

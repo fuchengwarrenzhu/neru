@@ -856,6 +856,11 @@ Key names: `a` to `z`, `0` to `9`, symbols such as `=`, `-`, `[`, `]`,
 only), and modifiers such as `cmd`, `shift`, `alt`, `ctrl`, `LeftCmd`,
 `RightShift`.
 
+With `--mode`, `MouseLeft`, `MouseRight` and `MouseMiddle` run the active
+mode's [mouse button binding](configuration.md#per-mode-hotkeys) as a click
+would, without clicking. Sent to the OS they are refused as unsupported keys,
+since Neru does not feed clicks.
+
 ### neru action bisect
 
 ```

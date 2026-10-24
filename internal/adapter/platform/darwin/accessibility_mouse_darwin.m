@@ -8,6 +8,7 @@
 #import "accessibility.h"
 #import "accessibility_constants.h"
 #import "accessibility_visibility.h"
+#import "eventtap.h"
 
 #import <Cocoa/Cocoa.h>
 #import <os/lock.h>
@@ -32,10 +33,15 @@
 /// last leaves the cursor and the viewport agreeing.
 static os_unfair_lock mouseMoveLock = OS_UNFAIR_LOCK_INIT;
 
-/// Pan the zoom viewport to reveal a point and post an event positioned there
+/// Pan the zoom viewport to reveal a point and post an event positioned there.
+/// Every mouse event Neru posts comes through here, so this is where it is
+/// marked as Neru's own: a click a binding performs must never reach the mode
+/// tap as a physical button press.
 /// @param event Event to post; its location must already be set to position
 /// @param position Position the event acts at
 static void postPositionedEventLocked(CGEventRef event, CGPoint position) {
+	CGEventSetIntegerValueField(event, kCGEventSourceUserData, kNeruSyntheticEventMarker);
+
 	os_unfair_lock_lock(&mouseMoveLock);
 
 	// Go threads have no autorelease pool, and posting autoreleases a CFData per

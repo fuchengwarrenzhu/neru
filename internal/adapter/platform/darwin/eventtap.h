@@ -21,6 +21,16 @@ typedef enum {
 	ModifierCtrl = 1 << 3,
 } ModifierKey;
 
+#pragma mark - Synthetic Event Marker
+
+/// Value Neru stamps into kCGEventSourceUserData on the keyboard and mouse
+/// events it posts (scroll-wheel events are not observed and go unmarked).
+/// The mode event tap returns any event carrying it untouched, so a key Neru
+/// feeds or a click it performs is never read back as the user's own input.
+/// The field is a source annotation the window server delivers alongside the
+/// event; it does not change how the receiving application handles it.
+static const int64_t kNeruSyntheticEventMarker = 0x1337;
+
 #pragma mark - Type Definitions
 
 /// Event tap callback type
