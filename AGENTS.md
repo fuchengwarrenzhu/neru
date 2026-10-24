@@ -2,12 +2,13 @@
 
 This file is the shared source of truth for any AI agent working on this repo (Claude Code, Codex, Copilot, Cursor, etc.). `CLAUDE.md` is a symlink to this file — edit here, never the symlink. Area-specific contracts live in nested `AGENTS.md` files — read the nearest one (and its parents) before editing there: `internal/app/modes/`, `internal/config/`, `internal/adapter/overlay/`, `internal/adapter/platform/` and its `darwin/` and `linux/` subdirectories. Personal overrides go in gitignored `AGENTS.local.md` / `CLAUDE.local.md`.
 
-Neru is a keyboard-driven, mouse-free navigation tool (hints / grid / recursive grid / scroll modes) written in Go, with native bridges per platform (Objective-C on macOS, X11/Wayland/evdev on Linux, Win32 on Windows). macOS is the primary platform; Linux and Windows are partially supported.
+This fork of Neru is a macOS-only keyboard navigation tool, written in Go with an Objective-C native bridge. Inherited Linux/Windows code is unsupported and may be removed; its presence does not make it a supported target. The fork rules below take precedence over inherited cross-platform contributor guidance.
 
 ## Warren's Fork: Philosophy
 
 This is a long-lived extension of upstream Neru. Keep the fork small and maintainable; preserve these rules during upstream syncs.
 
+- **macOS only.** Build, test, and ship for macOS. Remove non-Mac adapters, dependencies, build/release paths, CI jobs, and docs in focused changes after checking shared callers. Retain shared Go code the Mac app uses. Do not add non-Mac clients, parity stubs, or cross-platform release gates.
 - **Configuration first.** Use existing settings, commands, macros, bindings, and declared modes wherever they satisfy the request. Check the implementation and effective configuration before proposing code. Do not rebuild behavior Neru already provides.
 - **Extend only a demonstrated gap.** Before a source change, state what existing capability was checked and why it cannot deliver the requested behavior. Make the smallest extension in the existing owner; avoid replacement subsystems, parallel event monitors, and unrelated features.
 - **One source of truth.** Derive behavior and help from the effective configuration and existing command definitions. Reuse motion, repeat, input, and mode-lifecycle owners rather than copying their logic or maintaining a second binding table.
@@ -19,7 +20,7 @@ This is a long-lived extension of upstream Neru. Keep the fork small and maintai
 Every upstream sync (merge, rebase, or cherry-pick) requires a security review before adopting or installing the result. Preserve this rule when resolving upstream changes to this file.
 
 - Review the incoming diff and release notes for security fixes and changes to dependencies, Go/tool versions, native bridges, permissions, IPC authorization, command execution, logging, network access, and build/release workflows. Include website/tooling dependencies when changed; distinguish them from desktop runtime dependencies.
-- Run `just vuln` on macOS against the resulting revision; review the other platform vulnerability jobs when adopting cross-platform changes. Check changed dependency manifests/lockfiles against current advisories, and verify Go module integrity with `go mod verify`. A clean scan does not replace source review or cover native memory-safety issues.
+- Run `just vuln` on macOS against the resulting revision. Check changed dependency manifests/lockfiles, including build tools, against current advisories, and verify Go module integrity with `go mod verify`. A clean scan does not replace source review or cover native memory-safety issues.
 - For each finding, record the affected version, fixed version when known, whether vulnerable code is reachable in the shipped app or only tooling/another platform, and the mitigation. Record the reviewed upstream range, resulting SHA, checks, and limitations in the sync PR or a committed review note. Resolve applicable findings before installation; report unavailable checks as incomplete, never as a clean result.
 - For downloaded releases, verify provenance, published checksums when available, and macOS signing/Gatekeeper assessment. Treat config hooks and external commands as executable code; review changes before enabling them. Do not bypass platform security checks as part of an upstream sync.
 
