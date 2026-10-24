@@ -50,6 +50,16 @@ func (s *Service) LoadWithValidation(path string) *config.LoadResult {
 
 	warnUnknownKeys(warnings, undecoded, result.Config)
 
+	// The hotkey merges compare keys under the Primary table the daemon will
+	// run on, so an override of that table has to be in place before them.
+	overridePath := overrideFileToLayer(result.ConfigPath)
+	if overridePath != "" {
+		primaryErr := layerOverridePrimaryModifier(result.Config, overridePath)
+		if primaryErr != nil {
+			return refuse(result, primaryErr)
+		}
+	}
+
 	globalErr := s.applyGlobalHotkeys(result.Config, raw, warnings)
 	if globalErr != nil {
 		return refuse(result, globalErr)
@@ -60,11 +70,13 @@ func (s *Service) LoadWithValidation(path string) *config.LoadResult {
 		return refuse(result, modeErr)
 	}
 
-	if rejected := s.validateNestedHotkeys(raw); rejected != nil {
+	if rejected := s.validateNestedHotkeys(
+		raw,
+		result.Config.General.PrimaryModifier,
+	); rejected != nil {
 		return rejected
 	}
 
-	overridePath := overrideFileToLayer(result.ConfigPath)
 	if overridePath != "" {
 		overrideErr := s.applyOverrideFile(result.Config, overridePath, warnings)
 		if overrideErr != nil {
@@ -315,7 +327,7 @@ func (s *Service) applyGlobalHotkeys(
 		return nil
 	}
 
-	duplicateErr := validateRawHotkeyTable("hotkeys", hotMap)
+	duplicateErr := validateRawHotkeyTable("hotkeys", hotMap, cfg.General.PrimaryModifier)
 	if duplicateErr != nil {
 		return duplicateErr
 	}
@@ -328,7 +340,14 @@ func (s *Service) applyGlobalHotkeys(
 
 	replaceReboundLaunchers(cfg.Hotkeys.Bindings, parsed)
 
-	return s.mergeGlobalHotkeys(cfg.Hotkeys.Bindings, defaults, hotMap, parsed, warnings)
+	return s.mergeGlobalHotkeys(
+		cfg.Hotkeys.Bindings,
+		defaults,
+		hotMap,
+		parsed,
+		cfg.General.PrimaryModifier,
+		warnings,
+	)
 }
 
 // parseGlobalHotkeyTable reads each entry's actions. An entry that does not
@@ -379,6 +398,7 @@ func (s *Service) mergeGlobalHotkeys(
 	defaults map[string][]string,
 	hotMap map[string]any,
 	parsed map[string][]string,
+	primary config.PrimaryModifierConfig,
 	warnings *config.Warnings,
 ) error {
 	for key, value := range hotMap {
@@ -388,7 +408,7 @@ func (s *Service) mergeGlobalHotkeys(
 
 		// The default that normalizes to the same chord, so "Primary+Shift+g"
 		// replaces "Primary+Shift+G" rather than doubling up on it.
-		canonicalKey := config.FindNormalizedMapKey(bindings, key)
+		canonicalKey := config.FindNormalizedMapKey(bindings, key, primary)
 
 		actions, parsedOk := parsed[key]
 		if !parsedOk {
@@ -405,7 +425,7 @@ func (s *Service) mergeGlobalHotkeys(
 		}
 
 		if len(actions) == 1 && actions[0] == config.DisabledSentinel {
-			if _, exists := defaults[config.FindNormalizedMapKey(defaults, key)]; !exists {
+			if _, exists := defaults[config.FindNormalizedMapKey(defaults, key, primary)]; !exists {
 				warnings.Addf("hotkeys.%s: __disabled__ has no default binding to disable", key)
 			}
 
@@ -427,17 +447,20 @@ func (s *Service) mergeGlobalHotkeys(
 type modeHotkeyTarget struct {
 	modeKey string
 	dest    *map[string]config.StringOrStringArray
+	// primary is the table of the configuration being loaded, which is what
+	// Primary means in its keys.
+	primary config.PrimaryModifierConfig
 }
 
 // modeHotkeyTargets lists every mode that has its own hotkey table.
 func modeHotkeyTargets(cfg *config.Config) []modeHotkeyTarget {
 	return []modeHotkeyTarget{
-		{config.ModeNameScroll, &cfg.Scroll.Hotkeys},
-		{config.ModeNameHints, &cfg.Hints.Hotkeys},
-		{config.ModeNameGrid, &cfg.Grid.Hotkeys},
-		{config.ModeNameRecursiveGrid, &cfg.RecursiveGrid.Hotkeys},
-		{config.ModeNameBisect, &cfg.Bisect.Hotkeys},
-		{config.ModeNameMonitorSelect, &cfg.MonitorSelect.Hotkeys},
+		{config.ModeNameScroll, &cfg.Scroll.Hotkeys, cfg.General.PrimaryModifier},
+		{config.ModeNameHints, &cfg.Hints.Hotkeys, cfg.General.PrimaryModifier},
+		{config.ModeNameGrid, &cfg.Grid.Hotkeys, cfg.General.PrimaryModifier},
+		{config.ModeNameRecursiveGrid, &cfg.RecursiveGrid.Hotkeys, cfg.General.PrimaryModifier},
+		{config.ModeNameBisect, &cfg.Bisect.Hotkeys, cfg.General.PrimaryModifier},
+		{config.ModeNameMonitorSelect, &cfg.MonitorSelect.Hotkeys, cfg.General.PrimaryModifier},
 	}
 }
 
@@ -489,7 +512,11 @@ func (s *Service) applyCustomModeHotkeys(
 			hotkeys = config.DefaultCustomModeHotkeys()
 		}
 
-		target := modeHotkeyTarget{modeKey: modesKey + "." + name, dest: &hotkeys}
+		target := modeHotkeyTarget{
+			modeKey: modesKey + "." + name,
+			dest:    &hotkeys,
+			primary: cfg.General.PrimaryModifier,
+		}
 
 		if modeRaw, isTable := modesRaw[name].(map[string]any); isTable {
 			applyErr := s.applyModeHotkeyTable(target, modeRaw, warnings)
@@ -524,7 +551,7 @@ func (s *Service) applyModeHotkeyTable(
 		return nil
 	}
 
-	duplicateErr := validateRawHotkeyTable(target.modeKey+".hotkeys", table)
+	duplicateErr := validateRawHotkeyTable(target.modeKey+".hotkeys", table, target.primary)
 	if duplicateErr != nil {
 		return duplicateErr
 	}
@@ -553,7 +580,7 @@ func (s *Service) mergeModeHotkeys(
 		}
 
 		// The default that normalizes the same, so "escape" replaces "Escape".
-		canonicalKey := config.FindNormalizedMapKey(*target.dest, key)
+		canonicalKey := config.FindNormalizedMapKey(*target.dest, key, target.primary)
 
 		if len(actions) == 1 && actions[0] == config.DisabledSentinel {
 			if _, exists := (*target.dest)[canonicalKey]; !exists {
@@ -581,8 +608,11 @@ func (s *Service) mergeModeHotkeys(
 // validateNestedHotkeys checks the [[app_configs]] hotkey tables, top-level and
 // per-mode. The typed decode already loaded them; what is left to catch is two
 // entries normalizing to the same chord, where only one would ever fire.
-func (s *Service) validateNestedHotkeys(raw map[string]any) *config.LoadResult {
-	if result := validateAppConfigsHotkeys(appConfigsKey, raw); result != nil {
+func (s *Service) validateNestedHotkeys(
+	raw map[string]any,
+	primary config.PrimaryModifierConfig,
+) *config.LoadResult {
+	if result := validateAppConfigsHotkeys(appConfigsKey, raw, primary); result != nil {
 		return result
 	}
 
@@ -598,7 +628,7 @@ func (s *Service) validateNestedHotkeys(raw map[string]any) *config.LoadResult {
 			continue
 		}
 
-		if result := validateAppConfigsHotkeys(modeKey, modeRaw); result != nil {
+		if result := validateAppConfigsHotkeys(modeKey, modeRaw, primary); result != nil {
 			return result
 		}
 	}
@@ -613,6 +643,7 @@ func (s *Service) validateNestedHotkeys(raw map[string]any) *config.LoadResult {
 		if result := validateAppConfigsHotkeys(
 			modesKey+"."+name,
 			modeRaw,
+			primary,
 		); result != nil {
 			return result
 		}
@@ -637,6 +668,28 @@ func overrideFileToLayer(configPath string) string {
 	}
 
 	return overridePath
+}
+
+// layerOverridePrimaryModifier applies the override file's
+// general.primary_modifier entries to cfg, leaving every entry it does not
+// name as it was.
+func layerOverridePrimaryModifier(cfg *config.Config, overridePath string) error {
+	var layer struct {
+		General struct {
+			PrimaryModifier config.PrimaryModifierConfig `toml:"primary_modifier"`
+		} `toml:"general"`
+	}
+
+	layer.General.PrimaryModifier = cfg.General.PrimaryModifier
+
+	_, decodeErr := toml.DecodeFile(overridePath, &layer)
+	if decodeErr != nil {
+		return derrors.WrapConfigFailed(decodeErr, "parse of override file "+overridePath)
+	}
+
+	cfg.General.PrimaryModifier = layer.General.PrimaryModifier
+
+	return nil
 }
 
 // applyOverrideFile layers the file `neru config set` writes over the config,
