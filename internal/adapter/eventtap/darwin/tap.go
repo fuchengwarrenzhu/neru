@@ -270,6 +270,8 @@ func (et *EventTap) SetPassthroughCallback(callback tap.PassthroughCallback) {
 	}
 }
 
+var _ tap.UnboundKeyPasser = (*EventTap)(nil)
+
 // SetUnboundKeyPassthrough lets bare keys the passthrough blacklist does not
 // name reach the focused application (tap.UnboundKeyPasser). Each one the tap
 // passes is reported in order with the keys it dispatches, as

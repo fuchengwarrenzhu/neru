@@ -57,6 +57,12 @@ func (h *handlerState) cleanupForKeymapModeTransition() {
 	h.performModeSpecificCleanup()
 	h.stopHeldRepeat()
 
+	// The tap decides on its own thread, so until the next mode's lists land
+	// it would keep passing keys on this one's. Stopping now, the first thing
+	// the activation does with the lock, keeps a key typed during the switch
+	// consumed and delivered to the mode coming up.
+	h.setUnboundKeyPassthrough(false)
+
 	if h.refreshHintsTimer != nil {
 		h.refreshHintsTimer.Stop()
 		h.refreshHintsTimer = nil

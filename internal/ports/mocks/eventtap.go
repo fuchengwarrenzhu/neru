@@ -194,6 +194,15 @@ func (m *MockEventTapPort) SetUnboundKeyPassthrough(enabled bool) {
 	m.record("consume_unbound_keys")
 }
 
+// StickyModifierToggle returns the last value passed to
+// SetStickyModifierToggle.
+func (m *MockEventTapPort) StickyModifierToggle() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.stickyModifierToggle
+}
+
 // UnboundKeyPassthrough returns the last value passed to
 // SetUnboundKeyPassthrough.
 func (m *MockEventTapPort) UnboundKeyPassthrough() bool {

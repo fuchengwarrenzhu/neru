@@ -135,10 +135,13 @@ func (h *handlerState) syncStickyModifierToggle(mode domain.Mode) {
 	}
 
 	// Every mode but idle captures the keyboard, and sticky modifiers are a
-	// captured keyboard's to toggle.
+	// captured keyboard's to toggle. A declared mode that passes unbound keys
+	// does not capture the modifiers either: they belong to the typing it lets
+	// through, so a lone Shift tap reaches the app rather than toggling.
 	isNavMode := mode != domain.ModeIdle
 
-	enabled := isNavMode && h.config != nil && h.config.StickyModifiers.Enabled
+	enabled := isNavMode && h.config != nil && h.config.StickyModifiers.Enabled &&
+		!h.passesUnboundKeys(mode)
 
 	h.setStickyModifierToggle(enabled)
 }

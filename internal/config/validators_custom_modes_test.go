@@ -158,9 +158,6 @@ func TestValidateCustomModes_RefusesWhatCouldNeverBeEntered(t *testing.T) {
 	}
 }
 
-// TestConfig_HotkeysForModeAndApp_ReadsADeclaredMode pins the lookup a
-// keystroke settles against: the declared table by name, and the per-app
-// override merged over it, under the same rules the built-in modes follow.
 // TestValidateCustomModes_UnboundKeys pins the values unbound_keys takes:
 // leaving it out and "consume" keep a declared mode swallowing unbound keys,
 // "pass" hands them on, and anything else is refused rather than read as one
@@ -206,6 +203,9 @@ func TestValidateCustomModes_UnboundKeys(t *testing.T) {
 	}
 }
 
+// TestConfig_HotkeysForModeAndApp_ReadsADeclaredMode pins the lookup a
+// keystroke settles against: the declared table by name, and the per-app
+// override merged over it, under the same rules the built-in modes follow.
 func TestConfig_HotkeysForModeAndApp_ReadsADeclaredMode(t *testing.T) {
 	t.Parallel()
 

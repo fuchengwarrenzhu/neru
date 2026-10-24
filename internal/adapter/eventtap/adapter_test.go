@@ -51,7 +51,8 @@ func (f *fakeTap) SetInterceptedModifierKeys(
 ) {
 	f.record("SetInterceptedModifierKeys")
 }
-func (f *fakeTap) SetStickyModifierToggle(_ bool) { f.record("SetStickyModifierToggle") }
+func (f *fakeTap) SetStickyModifierToggle(_ bool)  { f.record("SetStickyModifierToggle") }
+func (f *fakeTap) SetUnboundKeyPassthrough(_ bool) { f.record("SetUnboundKeyPassthrough") }
 func (f *fakeTap) SetPassthroughCallback(_ tap.PassthroughCallback) {
 	f.record("SetPassthroughCallback")
 }
@@ -115,6 +116,7 @@ func TestAdapter_Destroy_DoesNotHoldTheLockWhileTheTapDrainsItsDispatcher(t *tes
 			defer close(pushed)
 
 			adapter.SetModifierPassthrough(true, nil)
+			adapter.SetUnboundKeyPassthrough(true)
 		}()
 
 		select {
@@ -246,6 +248,7 @@ func TestAdapter_Destroy_StopsLaterCallsFromReachingTheTap(t *testing.T) {
 	adapter.SetInterceptedModifierKeys([]string{"cmd+q"})
 	adapter.SetStickyModifierToggle(true)
 	adapter.SetPassthroughCallback(func() {})
+	adapter.SetUnboundKeyPassthrough(true)
 
 	if adapter.IsEnabled() {
 		t.Fatal("adapter reports enabled after Destroy")

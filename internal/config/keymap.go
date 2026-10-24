@@ -214,11 +214,23 @@ func (k Keymap) Bindings() []Binding {
 	return bindings
 }
 
-// SequenceStarts returns the first key of every two-keystroke binding, sorted.
-// A tap that passes unbound keys to the focused application has to keep these,
-// or the sequences they start could never be completed.
-func (k Keymap) SequenceStarts() []string {
-	return slices.Sorted(maps.Keys(k.sequenceStarts))
+// SequenceKeys returns every letter used in a two-keystroke binding, either
+// half, sorted. A tap that passes unbound keys to the focused application has
+// to keep all of them: without the first the sequence never starts, and
+// without the second it never completes.
+func (k Keymap) SequenceKeys() []string {
+	letters := make(map[string]struct{})
+
+	for normalized, binding := range k.byKey {
+		if binding.named || len(normalized) != 2 || !IsAllLetters(normalized) {
+			continue
+		}
+
+		letters[normalized[:1]] = struct{}{}
+		letters[normalized[1:]] = struct{}{}
+	}
+
+	return slices.Sorted(maps.Keys(letters))
 }
 
 // Keys returns every key the keymap binds, in the spelling it was written in

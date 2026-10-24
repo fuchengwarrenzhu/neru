@@ -64,6 +64,19 @@ static inline NSUInteger hotkeyLookupKey(CGKeyCode keyCode, CGEventFlags flags) 
 
 #pragma mark - Helper Functions
 
+/// Whether event is an autorepeat of a key boundLookup names with no modifier.
+/// Holding a bound key and then pressing Shift or Cmd makes its repeats arrive
+/// as a different chord, which the lookup does not name. A mode passing unbound
+/// keys must not hand those to the application (HHHH, or Cmd+H hiding it) while
+/// the key is still steering the mode, so they take the normal dispatch path,
+/// where the mode drops repeats of a key it holds by its base name.
+static BOOL isRepeatOfBoundKey(CGEventRef event, CGKeyCode keyCode, NSDictionary *boundLookup) {
+	if (CGEventGetIntegerValueField(event, kCGKeyboardEventAutorepeat) == 0)
+		return NO;
+
+	return [boundLookup[@(hotkeyLookupKey(keyCode, 0))] boolValue];
+}
+
 // Forward declaration for use in buildKeyLookupFromStrings
 static BOOL parseHotkeyString(NSString *hotkeyString, CGKeyCode *outKeyCode, uint8_t *outModifiers);
 
@@ -516,7 +529,9 @@ CGEventRef eventTapCallback(CGEventTapProxy proxy, CGEventType type, CGEventRef 
 				BOOL isIntercepted = interceptedLookup != nil && [interceptedLookup[@(lookupKey)] boolValue];
 				BOOL isBlacklisted = blacklistLookup != nil && [blacklistLookup[@(lookupKey)] boolValue];
 
-				if (passthroughEnabled && !isIntercepted && !isBlacklisted) {
+				BOOL heldBoundRepeat = passUnboundKeys && isRepeatOfBoundKey(event, keyCode, blacklistLookup);
+
+				if (passthroughEnabled && !isIntercepted && !isBlacklisted && !heldBoundRepeat) {
 					// Notify Go that a modifier shortcut was passed through so
 					// the active mode can decide whether to refresh (e.g., hints
 					// mode re-collects AX elements after Cmd+Tab).
@@ -572,7 +587,8 @@ CGEventRef eventTapCallback(CGEventTapProxy proxy, CGEventType type, CGEventRef 
 				boundLookup = context->modifierBlacklistLookup;
 				os_unfair_lock_unlock(&context->modifierPassthroughLock);
 
-				if (passUnboundKeys && ![boundLookup[@(lookupKey)] boolValue]) {
+				if (passUnboundKeys && ![boundLookup[@(lookupKey)] boolValue] &&
+				    !isRepeatOfBoundKey(event, keyCode, boundLookup)) {
 					if (context->callback) {
 						context->callback("__passthrough", context->userData);
 					}

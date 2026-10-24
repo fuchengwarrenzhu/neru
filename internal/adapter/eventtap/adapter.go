@@ -295,4 +295,5 @@ func (a *Adapter) claimTeardown() (chan struct{}, bool) {
 var (
 	_ ports.EventTapPort                       = (*Adapter)(nil)
 	_ ports.OverlayKeyboardPassthroughReporter = (*Adapter)(nil)
+	_ ports.UnboundKeyPassthrough              = (*Adapter)(nil)
 )

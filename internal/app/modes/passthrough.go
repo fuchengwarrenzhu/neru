@@ -30,9 +30,10 @@ const passthroughHintRefreshDelay = 300 * time.Millisecond
 //
 // A declared mode with unbound_keys = "pass" also has the tap pass the bare
 // keys the blacklist does not name. That switch is pushed on the safe side of
-// the blacklist: off before a new list lands and on after it, so a key arriving
-// between the two pushes is consumed rather than passed on a list that does
-// not describe the mode.
+// every list: off before any list lands, pass mode to pass mode included, and
+// on only after the new one, so a key arriving between the two pushes is
+// consumed and handed to the mode coming up rather than passed on a list that
+// does not describe it.
 //
 // Caller must hold h.mu.
 func (h *handlerState) syncModifierPassthrough(mode domain.Mode) {
@@ -43,9 +44,7 @@ func (h *handlerState) syncModifierPassthrough(mode domain.Mode) {
 	enabled := h.passthroughEnabledFor(mode)
 	passUnbound := enabled && h.passesUnboundKeys(mode)
 
-	if !passUnbound {
-		h.setUnboundKeyPassthrough(false)
-	}
+	h.setUnboundKeyPassthrough(false)
 
 	h.setPassthroughCallback(h.passthroughCallbackFor(mode, enabled))
 
@@ -64,11 +63,12 @@ func (h *handlerState) syncModifierPassthrough(mode domain.Mode) {
 		// consumes them instead of passing them through. So must the global
 		// chords the mode falls back to, and for the same reason: passed through,
 		// the tap would hand the user's own hotkey to the application in front of
-		// them and the fallback would never see the key at all. So must the first
-		// key of each two-key sequence, which a mode passing unbound bare keys
-		// would otherwise hand away before the sequence could complete.
+		// them and the fallback would never see the key at all. So must both
+		// letters of each two-key sequence, which a mode passing unbound bare
+		// keys would otherwise hand away before the sequence could start or
+		// complete — so in such a mode those letters are reserved, not typed.
 		keys := append(keymap.Keys(), globalHotkeys.Keys()...)
-		keys = append(keys, keymap.SequenceStarts()...)
+		keys = append(keys, keymap.SequenceKeys()...)
 
 		for _, key := range keys {
 			blacklist = append(blacklist, configpkg.CanonicalHotkeyForPlatform(key))
