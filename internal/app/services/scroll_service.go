@@ -122,6 +122,15 @@ func (s *ScrollService) Scroll(
 	return nil
 }
 
+// CancelScroll drops whatever smooth scroll has not posted yet, so a held
+// scroll key stops the page when it is let go. A backend that posts every
+// scroll whole has nothing in flight and is left alone.
+func (s *ScrollService) CancelScroll() {
+	if canceler, ok := s.accessibility.(ports.ScrollCanceler); ok {
+		canceler.CancelScroll()
+	}
+}
+
 // Health checks the health of the service's dependencies. Scrolling never
 // draws, so there is no overlay to report on.
 func (s *ScrollService) Health(ctx context.Context) map[string]error {

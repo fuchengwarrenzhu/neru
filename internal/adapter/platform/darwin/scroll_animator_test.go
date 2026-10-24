@@ -177,6 +177,48 @@ func TestScrollAnimator_Animate_KeepsTheBacklogBounded(t *testing.T) {
 	}
 }
 
+// TestScrollAnimator_Stop_PostsNothingAfterward pins what CancelScroll relies
+// on to stop a held scroll at its release: a fast stream banks undelivered
+// distance (about 300px at a 20x repeat), and stop must drop all of it rather
+// than let the animation play it out.
+func TestScrollAnimator_Stop_PostsNothingAfterward(t *testing.T) {
+	rec := &scrollRecorder{}
+	animator := newScrollAnimator(rec.pos, rec.post)
+
+	t.Cleanup(animator.stop)
+
+	for range 10 {
+		animator.animate(
+			0,
+			-50,
+			0,
+			scrollTestSteps,
+			scrollTestMaxDuration,
+			scrollTestDurationPerPixel,
+		)
+		time.Sleep(3 * time.Millisecond)
+	}
+
+	animator.stop()
+
+	stoppedAt := rec.count()
+
+	// Longer than max_duration, so a surviving animation would have posted.
+	time.Sleep(2 * scrollTestMaxDuration * time.Millisecond)
+
+	// stop does not wait for the worker, so a chunk it had already committed
+	// to may still land; anything past that is the animation carrying on.
+	if got := rec.count(); got-stoppedAt > 1 {
+		t.Errorf("%d chunks posted after stop, want at most the one in flight", got-stoppedAt)
+	}
+
+	if rec.traveled() == -500 {
+		t.Error(
+			"the whole stream was delivered before stop; the test no longer leaves a backlog to drop",
+		)
+	}
+}
+
 // TestScrollAnimator_Animate_DropsTheRemainderOnADifferentModifierSet pins the
 // half of the rule that must not change: a plain scroll_down arriving mid-zoom
 // cancels the zoom and finishes unmodified, which is what the second binding

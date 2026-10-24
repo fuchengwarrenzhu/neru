@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/y3owk1n/neru/internal/config"
+	"github.com/y3owk1n/neru/internal/domain/action"
 )
 
 func TestConfigValidateHeldRepeat_AccelDefaults(t *testing.T) {
@@ -14,6 +15,28 @@ func TestConfigValidateHeldRepeat_AccelDefaults(t *testing.T) {
 	err := cfg.ValidateHeldRepeat(nil)
 	if err != nil {
 		t.Fatalf("ValidateHeldRepeat() unexpected error: %v", err)
+	}
+}
+
+// TestConfigValidateHeldRepeat_AccelAcceptsEveryHeldRepeatAction pins the
+// rule accel_targets is checked against: acceleration scales a held repeat, so
+// any action that repeats while held is a target, scrolling included.
+func TestConfigValidateHeldRepeat_AccelAcceptsEveryHeldRepeatAction(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.HeldRepeat.AccelEnabled = true
+	cfg.HeldRepeat.AccelTargets = nil
+
+	for _, name := range []action.Name{
+		action.NameMoveMouseRelative, action.NameScrollUp, action.NameScrollDown,
+		action.NameScrollLeft, action.NameScrollRight, action.NamePageUp,
+		action.NamePageDown, action.NameMoveCell,
+	} {
+		cfg.HeldRepeat.AccelTargets = append(cfg.HeldRepeat.AccelTargets, string(name))
+	}
+
+	err := cfg.ValidateHeldRepeat(nil)
+	if err != nil {
+		t.Fatalf("ValidateHeldRepeat() refused held-repeat targets: %v", err)
 	}
 }
 
@@ -63,12 +86,6 @@ func TestConfigValidateHeldRepeat_AccelInvalid(t *testing.T) {
 			name: "target action does not repeat while held",
 			mutate: func(c *config.Config) {
 				c.HeldRepeat.AccelTargets = []string{"left_click"}
-			},
-		},
-		{
-			name: "target repeats but takes no delta flags",
-			mutate: func(c *config.Config) {
-				c.HeldRepeat.AccelTargets = []string{"scroll_down"}
 			},
 		},
 		{

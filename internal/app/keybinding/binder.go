@@ -251,7 +251,18 @@ func (b *Binder) startHotkeyRepeat(key string, actions []string) {
 		return
 	}
 
-	ctx, cancel := context.WithCancel(b.context())
+	ctx, cancelRepeat := context.WithCancel(b.context())
+	stream := &heldrepeat.Stream{}
+
+	// Stopping the repeat and dropping the scroll it banked are one step, taken
+	// where the key is released, so a press handled after that keeps its own.
+	cancel := func() {
+		cancelRepeat()
+
+		if stream.Scrolled() && b.cancelScroll != nil {
+			b.cancelScroll()
+		}
+	}
 
 	b.hotkeyRepeatMu.Lock()
 
@@ -286,7 +297,7 @@ func (b *Binder) startHotkeyRepeat(key string, actions []string) {
 
 		heldrepeat.Run(ctx, cfg, actions, func(tickActions []string) {
 			b.runActionSequence(key, tickActions)
-		})
+		}, stream)
 	}()
 }
 

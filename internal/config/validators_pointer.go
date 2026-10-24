@@ -127,14 +127,13 @@ func (c *Config) ValidateHeldRepeat(warnings *Warnings) error {
 		)
 	}
 
-	// Only move_mouse_relative accepts --dx/--dy; anything else would validate
-	// and then accelerate nothing.
+	// Acceleration scales a held repeat, so a target that never repeats would
+	// validate and then accelerate nothing.
 	for _, target := range c.HeldRepeat.AccelTargets {
-		if action.Name(target) != action.NameMoveMouseRelative {
+		if !action.IsHeldRepeatAction(action.Name(target)) {
 			return derrors.New(
 				derrors.CodeInvalidConfig,
-				"held_repeat.accel_targets only supports "+
-					string(action.NameMoveMouseRelative)+", got: "+target,
+				"held_repeat.accel_targets only supports actions that repeat while held, got: "+target,
 			)
 		}
 	}

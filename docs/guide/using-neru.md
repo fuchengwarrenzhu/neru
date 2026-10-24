@@ -131,7 +131,8 @@ scroll, so `Cmd` then `Shift+L` is a Cmd-click. Tap it again to release it. See
 
 **Glide.** With `[held_repeat] enabled = true`, holding an arrow key glides
 the cursor smoothly instead of stepping, and `accel_enabled = true` speeds it
-up the longer you hold. See
+up the longer you hold. Add scroll actions to `accel_targets` and held scroll
+keys speed up the same way, stopping when you let go. See
 [`[held_repeat]`](../reference/configuration.md#held_repeat).
 
 ## Several monitors

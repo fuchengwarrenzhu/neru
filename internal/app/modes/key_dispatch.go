@@ -419,8 +419,10 @@ func (h *handlerState) startHeldRepeat(key, bindKey string, actions []string) {
 	cfg := h.config.HeldRepeat
 
 	ctx, cancel := context.WithCancel(h.ctx)
+	stream := &heldrepeat.Stream{}
 	h.heldRepeatingKey = key
 	h.heldRepeatingCancel = cancel
+	h.heldRepeatStream = stream
 
 	capturedActions := append([]string(nil), actions...)
 
@@ -435,7 +437,7 @@ func (h *handlerState) startHeldRepeat(key, bindKey string, actions []string) {
 
 		heldrepeat.Run(ctx, cfg, capturedActions, func(tickActions []string) {
 			h.executeActionSequence(bindKey, tickActions, nil)
-		})
+		}, stream)
 	}()
 }
 

@@ -825,6 +825,10 @@ type simAXPort struct {
 	scrollMods     []action.Modifiers
 	releases       int
 
+	// scrollCancels holds, for each CancelScroll, how many scrolls had been
+	// posted when it came, so a journey can tell whether any landed after it.
+	scrollCancels []int
+
 	// focusedApp is which application the fixture desktop routes keystrokes
 	// to, and focusedAppQueries how many times the app asked for it.
 	//
@@ -912,6 +916,15 @@ func (a *simAXPort) Scroll(
 	return nil
 }
 
+// CancelScroll records that in-flight smooth scroll was dropped
+// (ports.ScrollCanceler).
+func (a *simAXPort) CancelScroll() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	a.scrollCancels = append(a.scrollCancels, len(a.scrolls))
+}
+
 func (a *simAXPort) ReleaseHeldButtons(_ context.Context) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -991,6 +1004,13 @@ func (a *simAXPort) recordedClicks() []simClick {
 	copy(out, a.clicks)
 
 	return out
+}
+
+func (a *simAXPort) recordedScrollCancels() []int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	return append([]int(nil), a.scrollCancels...)
 }
 
 func (a *simAXPort) recordedScrolls() []image.Point {

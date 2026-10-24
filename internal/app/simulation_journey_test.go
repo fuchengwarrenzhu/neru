@@ -2229,6 +2229,134 @@ func TestSimulation_HeldRepeatScroll(t *testing.T) {
 	sim.waitMode(domain.ModeIdle)
 }
 
+// TestSimulation_AcceleratedScrollStopsWithTheKey covers a scroll binding in
+// held_repeat.accel_targets: holding j repeats faster than interval_ms allows,
+// and letting go — or leaving the mode with j still down — drops the smooth
+// scroll still in flight exactly once, after the last scroll the repeat sent,
+// so nothing keeps scrolling the window once the key is up.
+func TestSimulation_AcceleratedScrollStopsWithTheKey(t *testing.T) {
+	const (
+		repeatIntervalMS = 50
+		// A 50ms interval allows at most 6 repeats in the 300ms the journey
+		// waits; three times that can only come from the ramp.
+		scrollsAwaited   = 18
+		accelRunUp       = 300 * time.Millisecond
+		stopSampleWindow = 100 * time.Millisecond
+	)
+
+	tests := []struct {
+		name    string
+		release string
+	}{
+		{"key release", "__keyup_j"},
+		{"mode exit with the key still down", "Escape"},
+	}
+
+	for _, scenario := range tests {
+		t.Run(scenario.name, func(t *testing.T) {
+			cfg := simConfig()
+			cfg.HeldRepeat.Enabled = true
+			cfg.HeldRepeat.InitialDelay = 1
+			cfg.HeldRepeat.Interval = repeatIntervalMS
+			cfg.HeldRepeat.AccelEnabled = true
+			cfg.HeldRepeat.AccelRampMs = 100
+			cfg.HeldRepeat.AccelMaxMultiplier = 20
+			cfg.HeldRepeat.AccelTargets = []string{string(action.NameScrollDown)}
+
+			sim := newSimHarness(t, cfg, nil)
+
+			sim.pressHotkey(scrollHotkey)
+			sim.waitMode(domain.ModeScroll)
+
+			sim.press("j")
+
+			sim.waitForWithin(
+				simWaitHeadroom+accelRunUp,
+				fmt.Sprintf("accelerated repeat reached %d scrolls", scrollsAwaited),
+				func() bool { return len(sim.ax.recordedScrolls()) >= scrollsAwaited },
+			)
+
+			sim.press(scenario.release)
+
+			sim.waitForWithin(
+				simWaitHeadroom+2*stopSampleWindow,
+				"repeat stopped and in-flight scroll was dropped",
+				func() bool {
+					before := len(sim.ax.recordedScrolls())
+
+					time.Sleep(stopSampleWindow)
+
+					return len(sim.ax.recordedScrollCancels()) > 0 &&
+						len(sim.ax.recordedScrolls()) == before
+				},
+			)
+
+			cancels := sim.ax.recordedScrollCancels()
+			if len(cancels) != 1 {
+				t.Fatalf("in-flight scroll dropped %d times, want once", len(cancels))
+			}
+
+			// The drop happens where the key is released; a repeat already
+			// mid-dispatch at that moment may still land one more scroll.
+			if posted := len(sim.ax.recordedScrolls()); posted-cancels[0] > 1 {
+				t.Errorf("%d scrolls landed after the drop, want at most the one in flight",
+					posted-cancels[0])
+			}
+		})
+	}
+}
+
+// TestSimulation_PressAfterAnAcceleratedReleaseKeepsItsScroll pins the order
+// the drop is taken in: it happens where j is released, so k pressed straight
+// after scrolls after it and is never the scroll the drop throws away.
+func TestSimulation_PressAfterAnAcceleratedReleaseKeepsItsScroll(t *testing.T) {
+	const scrollsAwaited = 10
+
+	cfg := simConfig()
+	cfg.HeldRepeat.Enabled = true
+	cfg.HeldRepeat.InitialDelay = 1
+	cfg.HeldRepeat.Interval = 50
+	cfg.HeldRepeat.AccelEnabled = true
+	cfg.HeldRepeat.AccelRampMs = 100
+	cfg.HeldRepeat.AccelMaxMultiplier = 20
+	cfg.HeldRepeat.AccelTargets = []string{string(action.NameScrollDown)}
+
+	sim := newSimHarness(t, cfg, nil)
+
+	sim.pressHotkey(scrollHotkey)
+	sim.waitMode(domain.ModeScroll)
+
+	sim.press("j")
+	sim.waitForWithin(simWaitHeadroom+300*time.Millisecond, "accelerated repeat running",
+		func() bool { return len(sim.ax.recordedScrolls()) >= scrollsAwaited })
+
+	sim.press("__keyup_j", "k", "__keyup_k")
+
+	firstUp := -1
+
+	sim.waitFor("k scrolled up", func() bool {
+		for idx, delta := range sim.ax.recordedScrolls() {
+			if delta.Y > 0 {
+				firstUp = idx
+
+				return true
+			}
+		}
+
+		return false
+	})
+
+	cancels := sim.ax.recordedScrollCancels()
+	if len(cancels) != 1 {
+		t.Fatalf("in-flight scroll dropped %d times, want once", len(cancels))
+	}
+
+	if cancels[0] > firstUp {
+		t.Errorf("the drop came after k's scroll (scroll %d, drop at %d); k would lose its step",
+			firstUp, cancels[0])
+	}
+}
+
 // TestSimulation_HeldMotionDiagonal covers the held-key glide: two held direction
 // keys glide the cursor diagonally on the motion tick, native autorepeat of a
 // held key is ignored, and releasing both keys stops the glide.
@@ -2282,7 +2410,9 @@ func TestSimulation_HeldMotionDiagonal(t *testing.T) {
 	// step. Anything past that is a real drift, since an autorepeat that got
 	// through moves a whole step.
 	_, step, _ := cfg.HeldRepeat.HeldMotion([]string{config.CmdMoveMouseRight})
-	tickShare := heldmotion.MaxTickDelta.Seconds() / cfg.HeldRepeat.Ramp().Interval.Seconds()
+	tickShare := heldmotion.MaxTickDelta.Seconds() / cfg.HeldRepeat.RampFor(
+		action.NameMoveMouseRelative,
+	).Interval.Seconds()
 	strayTick := int(math.Ceil(float64(step) * tickShare))
 
 	end := sim.cursor.position()

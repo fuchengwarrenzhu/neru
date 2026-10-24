@@ -20,6 +20,7 @@ import (
 	"github.com/y3owk1n/neru/internal/app/services"
 	"github.com/y3owk1n/neru/internal/config"
 	"github.com/y3owk1n/neru/internal/derrors"
+	"github.com/y3owk1n/neru/internal/domain/action"
 	"github.com/y3owk1n/neru/internal/domain/event"
 	domainHint "github.com/y3owk1n/neru/internal/domain/hint"
 	"github.com/y3owk1n/neru/internal/domain/motion"
@@ -332,7 +333,9 @@ func initializeModeHandler(app *App) {
 	app.motion = heldmotion.New(
 		app.ctx,
 		app.systemPort,
-		func() motion.Ramp { return app.configSnapshot().HeldRepeat.Ramp() },
+		func() motion.Ramp {
+			return app.configSnapshot().HeldRepeat.RampFor(action.NameMoveMouseRelative)
+		},
 		deps.logger,
 	)
 
@@ -460,9 +463,10 @@ func hotkeyBinderDeps(app *App) keybinding.Deps {
 				app.eventTap.SetHotkeys(keys)
 			}
 		},
-		Context: func() context.Context { return app.ctx },
-		Motion:  app.motion.Group("hotkeys"),
-		Logger:  app.logger,
+		Context:      func() context.Context { return app.ctx },
+		Motion:       app.motion.Group("hotkeys"),
+		CancelScroll: app.scrollService.CancelScroll,
+		Logger:       app.logger,
 	}
 }
 

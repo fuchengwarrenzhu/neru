@@ -79,6 +79,16 @@ type AccessibilityPort interface {
 	PrimeApplication(ctx context.Context, bundleID string) (bool, error)
 }
 
+// ScrollCanceler is an optional AccessibilityPort extension for backends that
+// play a scroll out over time (smooth_scroll). CancelScroll drops whatever an
+// in-flight scroll has not posted yet, so a held scroll key stops scrolling
+// when it is let go rather than when the animation catches up with it. Treat
+// a missing implementation as nothing in flight: a backend that posts each
+// scroll whole has nothing to drop.
+type ScrollCanceler interface {
+	CancelScroll()
+}
+
 // ElementFilter defines criteria for filtering UI elements.
 type ElementFilter struct {
 	// Roles specifies which accessibility roles to include.

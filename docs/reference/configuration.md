@@ -1337,10 +1337,10 @@ accel_enabled = true
 | `enabled`              | bool     | `false`                   | Master toggle for held-key repeat and the glide         |
 | `initial_delay_ms`     | int      | `50`                      | Delay before the first repeat, in ms                      |
 | `interval_ms`          | int      | `50`                      | Interval between repeats, in ms                           |
-| `accel_enabled`        | bool     | `false`                   | Ramp the glide's speed up the longer the key stays held |
+| `accel_enabled`        | bool     | `false`                   | Ramp the glide and the repeat up the longer the key stays held |
 | `accel_ramp_ms`        | int      | `500`                     | Hold time to reach `accel_max_multiplier`, in ms          |
 | `accel_max_multiplier` | float    | `4.0`                     | Speed multiplier at full ramp                           |
-| `accel_targets`        | string[] | `["move_mouse_relative"]` | Action names eligible for acceleration                  |
+| `accel_targets`        | string[] | `["move_mouse_relative"]` | Held-repeat action names eligible for acceleration      |
 
 ### Glide
 
@@ -1354,11 +1354,25 @@ acts at the cursor's live position.
 
 ### Acceleration
 
-With `accel_enabled = true`, the glide speed ramps linearly to
-`accel_max_multiplier` times the binding's speed over `accel_ramp_ms`. With the
-defaults a 10px binding reaches 500px/s at 250ms and 800px/s from 500ms.
+With `accel_enabled = true`, each action in `accel_targets` ramps linearly to
+`accel_max_multiplier` times its unaccelerated speed over `accel_ramp_ms`,
+counted from key down. The glide speeds up the cursor; with the defaults a 10px
+binding reaches 500px/s at 250ms and 800px/s from 500ms. Any other target
+repeats more often, its gap shrinking from `interval_ms` to `interval_ms /
+accel_max_multiplier`, and each repeat is still the binding run unchanged. A
+repeat that takes longer than the gap delays the next one instead of queueing
+it.
 
-- `accel_targets` accepts only `move_mouse_relative`. Any other entry, or an
+An accelerated scroll stops with the key. Smooth scroll plays each repeat out
+over time, so a fast stream still has distance to post when the key comes up.
+Once the key has repeated, releasing it or leaving the mode drops that distance.
+A tap released before its first repeat still scrolls its full step. A scroll left
+out of `accel_targets` behaves as before: the animation finishes what it was
+sent.
+
+- `accel_targets` accepts any action that repeats while held:
+  `move_mouse_relative`, `scroll_up`, `scroll_down`, `scroll_left`,
+  `scroll_right`, `page_up`, `page_down` and `move_cell`. Any other entry, or an
   empty list while `accel_enabled = true`, is a config error.
 - `accel_enabled = true` with `enabled = false` does nothing, and
   `neru config validate` warns.
