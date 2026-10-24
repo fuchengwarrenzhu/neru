@@ -4,6 +4,15 @@ This file is the shared source of truth for any AI agent working on this repo (C
 
 Neru is a keyboard-driven, mouse-free navigation tool (hints / grid / recursive grid / scroll modes) written in Go, with native bridges per platform (Objective-C on macOS, X11/Wayland/evdev on Linux, Win32 on Windows). macOS is the primary platform; Linux and Windows are partially supported.
 
+## Warren's Fork: Upstream Security Review
+
+Every upstream sync (merge, rebase, or cherry-pick) requires a security review before adopting or installing the result. Preserve this rule when resolving upstream changes to this file.
+
+- Review the incoming diff and release notes for security fixes and changes to dependencies, Go/tool versions, native bridges, permissions, IPC authorization, command execution, logging, network access, and build/release workflows. Include website/tooling dependencies when changed; distinguish them from desktop runtime dependencies.
+- Run `just vuln` on macOS against the resulting revision; review the other platform vulnerability jobs when adopting cross-platform changes. Check changed dependency manifests/lockfiles against current advisories, and verify Go module integrity with `go mod verify`. A clean scan does not replace source review or cover native memory-safety issues.
+- For each finding, record the affected version, fixed version when known, whether vulnerable code is reachable in the shipped app or only tooling/another platform, and the mitigation. Record the reviewed upstream range, resulting SHA, checks, and limitations in the sync PR or a committed review note. Resolve applicable findings before installation; report unavailable checks as incomplete, never as a clean result.
+- For downloaded releases, verify provenance, published checksums when available, and macOS signing/Gatekeeper assessment. Treat config hooks and external commands as executable code; review changes before enabling them. Do not bypass platform security checks as part of an upstream sync.
+
 ## Product Direction
 
 Neru is a free, open-source mouse replacement: every pointer action reachable from the keyboard, instantly. Judge features and fixes against these properties (current intent: `docs/project/roadmap.md`):
