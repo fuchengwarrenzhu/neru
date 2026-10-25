@@ -22,6 +22,8 @@ Initial baseline, not a full security audit. No app or permission changes were m
 
 Accessibility access lets this app inspect UI metadata and control input. Its native Objective-C/CGo layer and config-driven command execution deserve review alongside dependencies. The upstream security policy states that there is no built-in telemetry or outbound network communication; this review did not monitor live network traffic or audit every source file. Configured external commands can perform network access independently.
 
+The semantic target selector (`internal/adapter/jev`, added after this baseline) makes stdlib `net/http` and TLS reachable in the shipped app for the first time, only when a binding opts in to semantic hint search, so the HTTP/TLS findings above apply to it and its builds require the patched toolchain (Go 1.26.10 or later, or 1.27.2 or later).
+
 Before treating a build as cleared, use a patched Go toolchain, reassess the listed findings for the intended platform, review the native bridge and relevant incoming diff, and verify release provenance. Keep third-party module updates distinct from build-only/other-platform dependencies. Native memory safety, malicious dependencies, CI supply-chain compromise, and new unpublished vulnerabilities are outside what these scans can rule out.
 
 References: [upstream security policy](https://github.com/y3owk1n/neru/security), [VP8L advisory](https://pkg.go.dev/vuln/GO-2026-6222), [Go vulnerability database](https://vuln.go.dev/).

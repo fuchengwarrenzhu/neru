@@ -86,6 +86,25 @@ const (
 	// CodeChainBail indicates a chain action should abort (e.g. user canceled
 	// a mode without making a selection).
 	CodeChainBail Code = "CHAIN_BAIL"
+
+	// CodeCredentialMissing indicates a credential file is absent, empty, or
+	// holds no usable value.
+	CodeCredentialMissing Code = "CREDENTIAL_MISSING"
+
+	// CodeCredentialInsecure indicates a credential file, or its directory, is
+	// accessible to other users, so it was refused unread.
+	CodeCredentialInsecure Code = "CREDENTIAL_INSECURE"
+
+	// CodeUnauthorized indicates a remote service rejected the credential.
+	CodeUnauthorized Code = "UNAUTHORIZED"
+
+	// CodeRateLimited indicates a remote service refused a request under its
+	// rate limit.
+	CodeRateLimited Code = "RATE_LIMITED"
+
+	// CodeRemoteFailed indicates a remote service could not be reached, failed,
+	// or answered outside its contract.
+	CodeRemoteFailed Code = "REMOTE_FAILED"
 )
 
 // Error is a domain error with code, message, and optional cause.
