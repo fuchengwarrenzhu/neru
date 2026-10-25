@@ -290,6 +290,7 @@ test-foundation:
         ./internal/domain/parity \
         ./internal/domain/recursivegrid \
         ./internal/domain/bisect \
+        ./internal/domain/semantic \
         ./internal/domain/state ./internal/derrors \
         ./internal/flagref ./internal/supportref ./internal/configschema \
         ./internal/schematest \
