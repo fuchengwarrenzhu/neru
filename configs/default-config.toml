@@ -202,6 +202,11 @@ enabled = false
 border_width = 1
 border_radius = -1                          # -1 = auto pill
 
+# macOS: where hints --semantic sends its question
+[hints.semantic]
+endpoint = "https://api.typesafe.ai/v1/systemone"  # Or a gateway's System One route
+# api_key_file = ""                         # Absolute path; empty = ~/.config/credentials/typesafe-ai/apikey
+
 [hints.vision]
 detect_text = true
 detect_rectangles = true

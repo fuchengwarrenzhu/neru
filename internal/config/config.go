@@ -470,6 +470,14 @@ type BoundaryHighlightUI struct {
 	BackgroundColor Color `json:"backgroundColor" toml:"background_color"`
 }
 
+// HintsSemanticConfig defines where a --semantic hint search sends its
+// question: TypeSafe's System One API, or a gateway route that forwards the
+// same body.
+type HintsSemanticConfig struct {
+	Endpoint   string `json:"endpoint"   toml:"endpoint"`
+	APIKeyFile string `json:"apiKeyFile" toml:"api_key_file"`
+}
+
 // SearchInputUI defines the visual/appearance settings for hints text search.
 type SearchInputUI struct {
 	FontSize        int    `json:"fontSize"        toml:"font_size"`
@@ -545,6 +553,7 @@ type HintsConfig struct {
 	UI                HintsUI             `json:"ui"                toml:"ui"`
 	SearchInputUI     SearchInputUI       `json:"searchInputUi"     toml:"search_input_ui"`
 	BoundaryHighlight BoundaryHighlightUI `json:"boundaryHighlight" toml:"boundary_highlight"`
+	Semantic          HintsSemanticConfig `json:"semantic"          toml:"semantic"`
 	Vision            HintsVisionConfig   `json:"vision"            toml:"vision"`
 	Contour           HintsContourConfig  `json:"contour"           toml:"contour"`
 	Segment           HintsSegmentConfig  `json:"segment"           toml:"segment"`

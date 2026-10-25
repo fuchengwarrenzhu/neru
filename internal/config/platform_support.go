@@ -24,6 +24,8 @@ const (
 		"and the hooks never run"
 	noteGridPrewarm = "only the darwin grid overlay prewarms its layers; the other backends " +
 		"draw on demand"
+	noteSemanticSearch = "only the --semantic hint search reads it, and this fork ships that " +
+		"search for macOS only"
 )
 
 // captureScopeOptions are the paths for capture_scope, which shadows the hints
@@ -104,6 +106,11 @@ func PlatformSupport() parity.Declaration {
 
 		parity.On(parity.KindOption, darwinOnly, noteGridPrewarm,
 			"grid.prewarm_enabled",
+		),
+
+		parity.On(parity.KindOption, darwinOnly, noteSemanticSearch,
+			"hints.semantic.endpoint",
+			"hints.semantic.api_key_file",
 		),
 
 		parity.On(parity.KindOption, darwinAndLinux, noteVisionConfidence,

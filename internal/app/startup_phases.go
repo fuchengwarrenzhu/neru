@@ -80,7 +80,7 @@ func initializeInfrastructure(app *App) error {
 	// Building the selector reads nothing and sends nothing: it reaches the
 	// network only when a --semantic search is submitted.
 	if app.targetSelector == nil {
-		app.targetSelector = jev.NewAdapter(logger)
+		app.targetSelector = jev.NewAdapter(logger, app.semanticSettings)
 	}
 
 	// Install the platform font resolver. SetFontResolver makes the
@@ -625,4 +625,18 @@ func cleanupEventTapAndIPC(app *App) {
 
 	// Clean up IPC controller
 	app.ipcController = nil
+}
+
+// semanticSettings are where a --semantic search sends its question, read
+// from the configuration in force at each submit.
+func (a *App) semanticSettings() jev.Settings {
+	cfg := a.configSnapshot()
+	if cfg == nil {
+		return jev.Settings{}
+	}
+
+	return jev.Settings{
+		Endpoint: cfg.Hints.Semantic.Endpoint,
+		KeyFile:  cfg.Hints.Semantic.APIKeyFile,
+	}
 }

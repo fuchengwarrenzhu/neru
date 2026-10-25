@@ -2,6 +2,8 @@ package config
 
 import (
 	"fmt"
+	"net/url"
+	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"
@@ -130,6 +132,7 @@ func (c *Config) ValidateHints(warnings *Warnings) error {
 		c.validateHintScanDepth,
 		c.validateHintMissionControl,
 		c.validateHintVocabulary,
+		c.validateHintSemantic,
 		func() error { return validateHintsVisionConfig(c.Hints.Vision) },
 		func() error { return validateHintsContourConfig(c.Hints.Contour) },
 	}
@@ -172,6 +175,33 @@ func (c *Config) validateHintClickableRoles(warnings *Warnings) error {
 	}
 
 	c.warnUnresolvableClickableRoles(warnings, runtime.GOOS)
+
+	return nil
+}
+
+// validateHintSemantic checks where a --semantic search sends its question.
+// The endpoint receives the query and every candidate's description, so it
+// must be HTTPS, and it may not carry a credential, which the outcome log and
+// this message would otherwise repeat. Neither message quotes the value.
+func (c *Config) validateHintSemantic() error {
+	endpoint, parseErr := url.Parse(c.Hints.Semantic.Endpoint)
+	if parseErr != nil || endpoint.Scheme != "https" || endpoint.Host == "" {
+		return derrors.New(derrors.CodeInvalidConfig,
+			"hints.semantic.endpoint must be an https URL with a host")
+	}
+
+	if endpoint.User != nil || endpoint.RawQuery != "" || endpoint.Fragment != "" {
+		return derrors.New(derrors.CodeInvalidConfig,
+			"hints.semantic.endpoint cannot carry a user, a query or a fragment; "+
+				"put the key in hints.semantic.api_key_file")
+	}
+
+	keyFile := c.Hints.Semantic.APIKeyFile
+	if keyFile != "" && !filepath.IsAbs(keyFile) {
+		return derrors.New(derrors.CodeInvalidConfig,
+			"hints.semantic.api_key_file must be an absolute path, or empty for "+
+				"~/.config/credentials/typesafe-ai/apikey")
+	}
 
 	return nil
 }

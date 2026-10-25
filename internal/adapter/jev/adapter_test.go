@@ -393,8 +393,15 @@ func TestAdapter_Select_ReadsTheKeyAtCallTime(t *testing.T) {
 			err, derrors.CodeCredentialMissing)
 	}
 
-	written := writeKey(t, testKey, 0o700, 0o600)
-	adapter.keyPath = written
+	err = os.Mkdir(filepath.Dir(path), 0o700)
+	if err != nil {
+		t.Fatalf("Mkdir() error = %v", err)
+	}
+
+	err = os.WriteFile(path, []byte(testKey+"\n"), 0o600)
+	if err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
 
 	_, err = adapter.Select(context.Background(), testQuery, testCandidates())
 	if err != nil {
@@ -468,10 +475,11 @@ func TestAdapter_Select_LogsOnlyCountsAndCodes(t *testing.T) {
 			}
 
 			want := map[string]any{
-				"candidates": int64(len(candidates)),
-				"leaves":     int64(1),
-				"outcome":    testCase.wantOutcome,
-				"model":      testCase.wantModel,
+				"candidates":    int64(len(candidates)),
+				"leaves":        int64(1),
+				"outcome":       testCase.wantOutcome,
+				"model":         testCase.wantModel,
+				"endpoint_host": strings.TrimPrefix(server.URL, "http://"),
 			}
 			if testCase.wantCode != "" {
 				want["error_code"] = testCase.wantCode
@@ -487,6 +495,42 @@ func TestAdapter_Select_LogsOnlyCountsAndCodes(t *testing.T) {
 				t.Fatal("log line has no latency_ms")
 			}
 		})
+	}
+}
+
+// TestAdapter_Select_ReadsTheSettingsAtEachSelection pins what makes the
+// endpoint reloadable: the endpoint and key file in force at a submit are the
+// ones that submit uses, so a gateway named by a config reload answers the next
+// question with its own key.
+func TestAdapter_Select_ReadsTheSettingsAtEachSelection(t *testing.T) {
+	direct := newRecordingServer(t, http.StatusOK, answer(Model, "c0000"))
+	gateway := newRecordingServer(t, http.StatusOK, answer(Model, "c0000"))
+
+	const gatewayKey = "gateway-key-0123456789"
+
+	settings := Settings{Endpoint: direct.URL, KeyFile: writeKey(t, testKey, 0o700, 0o600)}
+	adapter := NewAdapter(nil, func() Settings { return settings })
+
+	_, err := adapter.Select(context.Background(), testQuery, testCandidates())
+	if err != nil {
+		t.Fatalf("Select() to the first endpoint error = %v", err)
+	}
+
+	settings = Settings{Endpoint: gateway.URL, KeyFile: writeKey(t, gatewayKey, 0o700, 0o600)}
+
+	_, err = adapter.Select(context.Background(), testQuery, testCandidates())
+	if err != nil {
+		t.Fatalf("Select() to the second endpoint error = %v", err)
+	}
+
+	if direct.requests.Load() != 1 || gateway.requests.Load() != 1 {
+		t.Fatalf("requests = %d to the first endpoint and %d to the second, want 1 each",
+			direct.requests.Load(), gateway.requests.Load())
+	}
+
+	header, _ := gateway.header.Load().(http.Header)
+	if got := header.Get("Authorization"); got != "Bearer "+gatewayKey {
+		t.Fatal("the second endpoint did not get its own key")
 	}
 }
 

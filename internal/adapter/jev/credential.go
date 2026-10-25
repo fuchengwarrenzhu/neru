@@ -21,9 +21,11 @@ const (
 	maxKeyBytes = 4096
 )
 
-func (a *Adapter) credentialPath() (string, error) {
-	if a.keyPath != "" {
-		return a.keyPath, nil
+// credentialPath is keyFile, or the jev CLI's key under the home directory
+// when keyFile is empty.
+func credentialPath(keyFile string) (string, error) {
+	if keyFile != "" {
+		return keyFile, nil
 	}
 
 	home, err := os.UserHomeDir()
