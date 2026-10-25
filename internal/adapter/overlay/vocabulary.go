@@ -34,6 +34,9 @@ type (
 	// KeyboardCaptureController is the optional capability a backend declares
 	// when its surface can hold or release the keyboard.
 	KeyboardCaptureController = manager.KeyboardCaptureController
+	// HintSearchStatusDrawer is the optional capability a backend declares
+	// when its search badge can show a status in place of the count.
+	HintSearchStatusDrawer = manager.HintSearchStatusDrawer
 )
 
 // Overlay modes.

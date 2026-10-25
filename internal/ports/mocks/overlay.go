@@ -423,6 +423,19 @@ func (m *MockOverlayPort) HintSearchDrawCount() int {
 	return len(m.hintSearches)
 }
 
+// LastHintSearch returns the most recent search input draw, and whether one
+// was ever drawn.
+func (m *MockOverlayPort) LastHintSearch() (ports.HintSearch, bool) {
+	m.frameMu.Lock()
+	defer m.frameMu.Unlock()
+
+	if len(m.hintSearches) == 0 {
+		return ports.HintSearch{}, false
+	}
+
+	return m.hintSearches[len(m.hintSearches)-1], true
+}
+
 // IsVisible implements ports.OverlayPort.
 func (m *MockOverlayPort) IsVisible() bool {
 	if m.IsVisibleFunc != nil {

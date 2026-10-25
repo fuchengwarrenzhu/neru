@@ -168,6 +168,10 @@ func (h *handlerState) activateHintModeInternal(activation modecmd.Activation) {
 			zap.Error(bundleIDErr))
 	}
 
+	if h.hints != nil && h.hints.Context != nil {
+		h.hints.Context.SetScannedApp(bundleID)
+	}
+
 	// Get hints from service. Drawing is intentionally deferred until after
 	// active-screen filtering so activation performs one full overlay render.
 	ctx, cancel := context.WithTimeout(h.ctx, HintTimeout)
@@ -305,6 +309,11 @@ func (h *handlerState) activateHintModeInternal(activation modecmd.Activation) {
 	// activation may still abandon.
 	h.hintsFrameOnScreen = false
 
+	// A --semantic search about to open hides the labels, so its first frame
+	// draws none rather than showing them for the moment before the search.
+	opensSearch := activation.Search != nil && *activation.Search
+	h.hints.Context.SetLabelsHidden(opensSearch && h.hints.Context.Semantic())
+
 	setHintsErr := h.hints.Context.SetHints(hintCollection)
 	if setHintsErr != nil {
 		h.logger.Error("Failed to set hints in manager", zap.Error(setHintsErr))
@@ -324,7 +333,7 @@ func (h *handlerState) activateHintModeInternal(activation modecmd.Activation) {
 
 	h.logger.Info("Hints mode activated", fields...)
 
-	if activation.Search != nil && *activation.Search {
+	if opensSearch {
 		err := h.startHintSearch(false)
 		if err != nil {
 			h.logger.Error("Failed to start hint search on activation", zap.Error(err))

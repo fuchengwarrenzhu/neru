@@ -60,6 +60,10 @@ func applyHintFlagOverrides(ctx *hints.Context, activation modecmd.Activation) {
 		ctx.SetHideOnEmptySearch(*activation.HideOnEmptySearch)
 	}
 
+	if activation.Semantic != nil {
+		ctx.SetSemantic(*activation.Semantic)
+	}
+
 	if activation.ConfirmOnLabel != nil {
 		ctx.SetConfirmOnLabel(*activation.ConfirmOnLabel)
 	}
@@ -99,6 +103,7 @@ func applyHintFlagsFresh(ctx *hints.Context, activation modecmd.Activation) {
 	ctx.SetFilterTextContains(activation.FilterTextContains)
 	ctx.SetStartWithSearch(activation.Search != nil && *activation.Search)
 	ctx.SetHideOnEmptySearch(activation.HideOnEmptySearch != nil && *activation.HideOnEmptySearch)
+	ctx.SetSemantic(activation.Semantic != nil && *activation.Semantic)
 	ctx.SetConfirmOnLabel(activation.ConfirmOnLabel != nil && *activation.ConfirmOnLabel)
 	ctx.SetExitOnUnmatched(activation.ExitOnUnmatched != nil && *activation.ExitOnUnmatched)
 	ctx.SetStrategyOverride(derefOr(activation.Strategy, ""))

@@ -39,6 +39,7 @@ becomes Stable after six releases in a row with no bug filed against it alone.
 | Hints from shapes (`contour`)  | ✅    | ✅        | ✅                | ✅            | ✅      |
 | Hints from layout (`segment`)  | ✅    | ✅        | ✅                | ✅            | ✅      |
 | Hint search                    | ✅    | ✅        | ✅                | ⚠️ ³          | ⚠️ ³    |
+| Semantic hint search (`--semantic`) | ✅ | ❌ ¹²     | ❌ ¹²             | ❌ ¹²         | ❌ ¹²   |
 | Menu bar, Dock and other system surfaces in hints | ✅ | ➖ | ➖          | ➖            | ➖      |
 | Scroll mode                    | ✅    | ✅        | ✅                | ✅            | ✅      |
 | Monitor select                 | ✅    | ✅        | ✅                | ✅            | ✅      |
@@ -128,6 +129,12 @@ startup alerts go to stderr.
 `systray.enabled = false` they report that they are not supported. Alerts are
 dialogs and need no tray.
 
+¹² **Semantic hint search is macOS only in this fork.** The view that hides the
+labels and keeps the target boundaries, and Tab back to the labels, exist only
+in the macOS overlay and search field. `neru doctor` reports `target_selection`
+as a stub elsewhere. What it sends is in
+[Privacy](../guide/using-neru.md#privacy).
+
 **Windows on ARM** draws overlays with GDI, the CPU fallback, instead of
 Direct2D.
 
@@ -151,6 +158,7 @@ load, and `neru doctor` lists them under `platform_support`.
 | `hints.detect_mission_control`, `hints.on_mission_control_activated`, `hints.on_mission_control_deactivated`, `hooks.on_mission_control_activated`, `hooks.on_mission_control_deactivated` | ✅ | ❌ | ❌ | Mission Control is a macOS concept, so the detection never fires and the hooks never run |
 | `grid.prewarm_enabled` | ✅ | ❌ | ❌ | only the darwin grid overlay prewarms its layers; the other backends draw on demand |
 | `hints.vision.minimum_confidence`, `hints.vision.button_min_confidence`, `hints.vision.generic_clickable_min_confidence` | ✅ | ✅ | ❌ | Windows.Media.Ocr reports no per-word confidence, so every word scores one there and a floor keeps everything; the Vision framework and tesseract score each word |
+| `--semantic` (mode flag) | ✅ | ❌ | ❌ | this fork ships for macOS only, and the view with the labels hidden and Tab back to them exists only in the macOS overlay and search field |
 | `hide_cursor` (action), `show_cursor` (action) | ✅ | ❌ | ❌ | a Wayland client may not hide another client's cursor, and the blessed Linux stack is Wayland; Windows has no equivalent either |
 
 <!-- END GENERATED PLATFORM SUPPORT -->

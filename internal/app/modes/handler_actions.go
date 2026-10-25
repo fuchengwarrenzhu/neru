@@ -169,6 +169,7 @@ func (h *handlerState) cycleHint(ctx context.Context, backward bool, executeActi
 		filterRoles := h.hints.Context.FilterRoles()
 		filterTextContains := h.hints.Context.FilterTextContains()
 		startWithSearch := h.hints.Context.StartWithSearch()
+		semanticSearch := h.hints.Context.Semantic()
 		confirmOnLabel := h.hints.Context.ConfirmOnLabel()
 		exitOnUnmatched := h.hints.Context.ExitOnUnmatched()
 		strategyOverride := h.hints.Context.StrategyOverride()
@@ -183,6 +184,7 @@ func (h *handlerState) cycleHint(ctx context.Context, backward bool, executeActi
 				FilterRoles:        filterRoles,
 				FilterTextContains: filterTextContains,
 				Search:             &startWithSearch,
+				Semantic:           &semanticSearch,
 				ConfirmOnLabel:     &confirmOnLabel,
 				ExitOnUnmatched:    &exitOnUnmatched,
 				Strategy:           &strategyOverride,
@@ -205,6 +207,7 @@ func (h *handlerState) cycleHint(ctx context.Context, backward bool, executeActi
 				h.hints.Context.SetFilterRoles(filterRoles)
 				h.hints.Context.SetFilterTextContains(filterTextContains)
 				h.hints.Context.SetStartWithSearch(startWithSearch)
+				h.hints.Context.SetSemantic(semanticSearch)
 				h.hints.Context.SetConfirmOnLabel(confirmOnLabel)
 				h.hints.Context.SetExitOnUnmatched(exitOnUnmatched)
 				h.hints.Context.SetStrategyOverride(strategyOverride)
@@ -239,17 +242,29 @@ func (h *handlerState) startHintSearch(confirmOnLabel bool) error {
 	h.hints.Context.SetSearchQuery("")
 	h.hints.Context.SetSearchActive(true)
 	h.hints.Context.SetSearchConfirmOnLabel(confirmOnLabel)
+	h.hints.Context.SetSearchStatus("")
 
 	session := h.hintSearchSession
+	semanticSearch := h.hints.Context.Semantic()
 
-	if h.hints.Context.HideOnEmptySearch() {
+	switch {
+	case semanticSearch:
+		// A search that picks by description keeps every target in view and
+		// shows where each is, not what it is called.
+		h.hints.Context.SetLabelsHidden(true)
+
+		setHintsErr := h.hints.Context.SetVisibleHints(h.hints.Context.SourceHints())
+		if setHintsErr != nil {
+			return setHintsErr
+		}
+	case h.hints.Context.HideOnEmptySearch():
 		// When hide-on-empty-search is active, hide all hints initially.
 		// Hints will appear as the user types a query.
 		setHintsErr := h.hints.Context.ClearVisibleHints()
 		if setHintsErr != nil {
 			return setHintsErr
 		}
-	} else {
+	default:
 		setHintsErr := h.hints.Context.SetVisibleHints(
 			h.hints.Context.SourceHints(),
 		)
@@ -297,44 +312,7 @@ func (h *handlerState) startHintSearch(confirmOnLabel bool) error {
 
 	started, _ := h.textInput.StartHintSearchSession(
 		h.ctx,
-		ports.TextInputCallbacks{
-			OnQueryChanged: func(query string) {
-				h.outer.mu.Lock()
-				defer h.outer.mu.Unlock()
-
-				if h.hintSearchSession != session || h.appState.CurrentMode() != domain.ModeHints ||
-					h.hints == nil || h.hints.Context == nil {
-					return
-				}
-
-				if !h.hints.Context.SearchActive() {
-					return
-				}
-
-				h.hints.Context.SetSearchQuery(query)
-				h.applyHintSearchFilter()
-			},
-			OnConfirm: func() {
-				h.outer.mu.Lock()
-				defer h.outer.mu.Unlock()
-
-				if h.hintSearchSession != session || h.appState.CurrentMode() != domain.ModeHints {
-					return
-				}
-
-				h.confirmHintSearch()
-			},
-			OnCancel: func() {
-				h.outer.mu.Lock()
-				defer h.outer.mu.Unlock()
-
-				if h.hintSearchSession != session || h.appState.CurrentMode() != domain.ModeHints {
-					return
-				}
-
-				h.cancelHintSearch()
-			},
-		},
+		h.hintSearchCallbacks(session, semanticSearch),
 		textInputFrame,
 	)
 
@@ -356,6 +334,84 @@ func (h *handlerState) startHintSearch(confirmOnLabel bool) error {
 	return nil
 }
 
+// hintSearchCallbacks are what the platform's search field calls. Each runs on
+// a goroutine of the bridge's and takes the lock itself, and each does nothing
+// once its session has stopped.
+//
+// A --semantic search answers Return by asking the target selector, Escape by
+// leaving hints, and takes Tab to bring the labels back; a plain search
+// confirms and cancels the text match and leaves Tab to the field.
+func (h *handlerState) hintSearchCallbacks(
+	session uint64,
+	semanticSearch bool,
+) ports.TextInputCallbacks {
+	callbacks := ports.TextInputCallbacks{
+		OnQueryChanged: func(query string) {
+			h.outer.mu.Lock()
+			defer h.outer.mu.Unlock()
+
+			if h.hintSearchSession != session || h.appState.CurrentMode() != domain.ModeHints ||
+				h.hints == nil || h.hints.Context == nil {
+				return
+			}
+
+			if !h.hints.Context.SearchActive() {
+				return
+			}
+
+			h.hints.Context.SetSearchQuery(query)
+			h.applyHintSearchFilter()
+		},
+		OnConfirm: func() {
+			h.outer.mu.Lock()
+			defer h.outer.mu.Unlock()
+
+			if h.hintSearchSession != session || h.appState.CurrentMode() != domain.ModeHints {
+				return
+			}
+
+			if semanticSearch {
+				h.submitSemanticSearch()
+
+				return
+			}
+
+			h.confirmHintSearch()
+		},
+		OnCancel: func() {
+			h.outer.mu.Lock()
+			defer h.outer.mu.Unlock()
+
+			if h.hintSearchSession != session || h.appState.CurrentMode() != domain.ModeHints {
+				return
+			}
+
+			if semanticSearch {
+				h.exitMode()
+
+				return
+			}
+
+			h.cancelHintSearch()
+		},
+	}
+
+	if semanticSearch {
+		callbacks.OnTab = func() {
+			h.outer.mu.Lock()
+			defer h.outer.mu.Unlock()
+
+			if h.hintSearchSession != session || h.appState.CurrentMode() != domain.ModeHints {
+				return
+			}
+
+			h.cancelHintSearch()
+		}
+	}
+
+	return callbacks
+}
+
 func (h *handlerState) stopHintSearchTextInput(keepEventTapDisabled bool) {
 	if h.hintSearchTextInputActive && h.textInput != nil {
 		// Use Background context since this may be called during cleanup,
@@ -366,8 +422,10 @@ func (h *handlerState) stopHintSearchTextInput(keepEventTapDisabled bool) {
 		}
 	}
 
-	// Callbacks the stopped session already queued see a new count and stop.
+	// Callbacks the stopped session already queued see a new count and stop,
+	// and so does the answer to a selection it submitted.
 	h.hintSearchSession++
+	h.cancelSemanticRequest()
 	h.hintSearchTextInputActive = false
 
 	if h.hintSearchEventTapDisabled && h.hasEventTap() &&

@@ -51,6 +51,31 @@ func TestValidateModeCommands_WarnsWithoutRefusing(t *testing.T) {
 			want: []string{"hints.hotkeys.q: grid does not accept --search"},
 		},
 		{
+			// The search hides the labels, so without boundaries it shows
+			// nothing to describe.
+			name: "semantic search without boundaries",
+			breakIt: func(cfg *config.Config) {
+				cfg.Hints.BoundaryHighlight.Enabled = false
+				cfg.Hotkeys.Bindings = map[string][]string{
+					"z": {"hints --action left_click --search --semantic"},
+				}
+			},
+			want: []string{
+				"hotkeys.z: --semantic hides the hint labels and shows only the target " +
+					"boundaries, which hints.boundary_highlight.enabled = false leaves undrawn",
+			},
+		},
+		{
+			name: "semantic search with boundaries",
+			breakIt: func(cfg *config.Config) {
+				cfg.Hints.BoundaryHighlight.Enabled = true
+				cfg.Hotkeys.Bindings = map[string][]string{
+					"z": {"hints --action left_click --search --semantic"},
+				}
+			},
+			want: nil,
+		},
+		{
 			name: "a macro body",
 			breakIt: func(cfg *config.Config) {
 				cfg.Macros = map[string]config.StringOrStringArray{

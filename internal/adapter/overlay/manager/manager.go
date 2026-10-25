@@ -147,6 +147,21 @@ type MonitorSelector interface {
 	HideMonitorSelect()
 }
 
+// HintSearchStatusDrawer is the optional extension a backend implements when
+// its search badge can say something other than the result count: a short
+// status from a search that picks its target remotely ("…", "no single
+// match"). Only the macOS backend does; the adapter draws the count on the
+// others.
+type HintSearchStatusDrawer interface {
+	DrawHintSearchInputStatus(
+		query string,
+		status string,
+		resultCount int,
+		frame hints.SearchInputFrame,
+		style hints.SearchInputStyle,
+	) error
+}
+
 // Interface is the overlay window management contract.
 type Interface interface {
 	WaylandKeyboardChannel() <-chan string

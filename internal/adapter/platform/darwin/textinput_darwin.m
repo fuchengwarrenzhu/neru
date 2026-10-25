@@ -21,6 +21,7 @@
 @property(nonatomic, assign) TextInputQueryCallback queryCallback;
 @property(nonatomic, assign) TextInputControlCallback confirmCallback;
 @property(nonatomic, assign) TextInputControlCallback cancelCallback;
+@property(nonatomic, assign) TextInputControlCallback tabCallback;  ///< NULL leaves Tab to the field
 @property(nonatomic, assign) void *userData;
 @end
 
@@ -69,6 +70,13 @@
 		return;
 	}
 
+	// Tab is taken only when a session asked for it, so a search that did not
+	// keeps typing it into the field as before.
+	if (keyCode == 48 && self.tabCallback && ![self hasMarkedText]) {
+		self.tabCallback(self.userData);
+		return;
+	}
+
 	if (keyCode == 36 || keyCode == 76) {
 		if ([self hasMarkedText]) {
 			[super keyDown:event];
@@ -102,7 +110,8 @@ static NSScreen *activeScreen(void) {
 
 static void startOnMainThread(
     TextInputQueryCallback queryCallback, TextInputControlCallback confirmCallback,
-    TextInputControlCallback cancelCallback, int x, int y, int width, int height, void *userData) {
+    TextInputControlCallback cancelCallback, TextInputControlCallback tabCallback, int x, int y, int width, int height,
+    void *userData) {
 	NSScreen *screen = activeScreen();
 	NSRect screenFrame = screen ? screen.frame : NSMakeRect(0, 0, 0, 0);
 	CGFloat finalWidth = width > 0 ? (CGFloat)width : 16.0;
@@ -117,6 +126,7 @@ static void startOnMainThread(
 		gTextView.queryCallback = queryCallback;
 		gTextView.confirmCallback = confirmCallback;
 		gTextView.cancelCallback = cancelCallback;
+		gTextView.tabCallback = tabCallback;
 		gTextView.userData = userData;
 		[gTextView setString:@""];
 		[gTextView notifyQueryChanged];
@@ -173,6 +183,7 @@ static void startOnMainThread(
 	textView.queryCallback = queryCallback;
 	textView.confirmCallback = confirmCallback;
 	textView.cancelCallback = cancelCallback;
+	textView.tabCallback = tabCallback;
 	textView.userData = userData;
 
 	[panel setContentView:textView];
@@ -216,11 +227,12 @@ static void stopOnMainThread(void) {
 
 int NeruStartHintSearchTextInput(
     TextInputQueryCallback queryCallback, TextInputControlCallback confirmCallback,
-    TextInputControlCallback cancelCallback, int x, int y, int width, int height, void *userData) {
+    TextInputControlCallback cancelCallback, TextInputControlCallback tabCallback, int x, int y, int width, int height,
+    void *userData) {
 	__block int started = 0;
 
 	void (^work)(void) = ^{
-		startOnMainThread(queryCallback, confirmCallback, cancelCallback, x, y, width, height, userData);
+		startOnMainThread(queryCallback, confirmCallback, cancelCallback, tabCallback, x, y, width, height, userData);
 		started = (gPanel != nil) ? 1 : 0;
 	};
 

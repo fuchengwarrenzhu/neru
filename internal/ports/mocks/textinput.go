@@ -120,5 +120,22 @@ func (m *MockTextInputPort) EmitCancel() {
 	}
 }
 
+// EmitTab invokes the registered OnTab callback and reports whether one was
+// registered, standing in for the field handing Tab back rather than typing
+// it.
+func (m *MockTextInputPort) EmitTab() bool {
+	m.mu.Lock()
+	callback := m.callbacks.OnTab
+	m.mu.Unlock()
+
+	if callback == nil {
+		return false
+	}
+
+	callback()
+
+	return true
+}
+
 // Ensure MockTextInputPort implements ports.TextInputPort.
 var _ ports.TextInputPort = (*MockTextInputPort)(nil)

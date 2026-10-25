@@ -105,6 +105,10 @@ func (m *Manager) WindowPtr() unsafe.Pointer {
 // this pins the shared spelling every backend answers headlessness with.
 var _ manager.HeadlessReporter = (*Manager)(nil)
 
+// The search badge's status is drawn only here, so the assertion is what keeps
+// a signature drift from silently dropping it back to the count.
+var _ manager.HintSearchStatusDrawer = (*Manager)(nil)
+
 // Headless reports whether the overlay window failed to be created, leaving
 // nothing for the render overlays to draw on.
 func (m *Manager) Headless() bool {
@@ -344,11 +348,23 @@ func (m *Manager) DrawHintSearchInput(
 	frame hints.SearchInputFrame,
 	style hints.SearchInputStyle,
 ) error {
+	return m.DrawHintSearchInputStatus(query, "", resultCount, frame, style)
+}
+
+// DrawHintSearchInputStatus draws the hints search input with a status in
+// place of the result count (manager.HintSearchStatusDrawer).
+func (m *Manager) DrawHintSearchInputStatus(
+	query string,
+	status string,
+	resultCount int,
+	frame hints.SearchInputFrame,
+	style hints.SearchInputStyle,
+) error {
 	if m.HintOverlay() == nil {
 		return nil
 	}
 
-	err := m.HintOverlay().DrawSearchInput(query, resultCount, frame, style)
+	err := m.HintOverlay().DrawSearchInput(query, status, resultCount, frame, style)
 	if err != nil {
 		return derrors.Wrap(err, derrors.CodeOverlayFailed, "failed to draw hint search input")
 	}

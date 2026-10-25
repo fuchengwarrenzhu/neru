@@ -50,8 +50,33 @@ func (c *Config) ValidateModeCommands(warnings *Warnings) error {
 			warnings.Addf("%s: %s", field, derrors.Message(warning))
 		}
 
+		c.warnSemanticWithoutBoundaries(warnings, field, activation)
+
 		return nil
 	})
+}
+
+// warnSemanticWithoutBoundaries reports a --semantic binding that will show
+// nothing: that search hides the labels and leaves the target boundaries as
+// the only thing on screen, and the boundaries are drawn only when
+// hints.boundary_highlight is enabled. The binding still works — Return still
+// picks a target — so it is a warning, not a refusal.
+func (c *Config) warnSemanticWithoutBoundaries(
+	warnings *Warnings,
+	field string,
+	activation modecmd.Activation,
+) {
+	semantic := activation.Semantic != nil && *activation.Semantic
+	if !semantic || c.Hints.BoundaryHighlight.Enabled {
+		return
+	}
+
+	warnings.Addf(
+		"%s: %s hides the hint labels and shows only the target boundaries, which "+
+			"hints.boundary_highlight.enabled = false leaves undrawn",
+		field,
+		modecmd.FlagSemantic.Long(),
+	)
 }
 
 // checkDeclaredMode refuses a step that enters a declared mode nothing

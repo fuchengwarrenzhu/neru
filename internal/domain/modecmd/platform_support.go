@@ -13,11 +13,26 @@ import "github.com/y3owk1n/neru/internal/domain/parity"
 // exists to prevent
 // (docs/adr/0013-parity-is-measured-in-words-not-subsystems.md).
 //
-// Every flag is everywhere today. The vision strategy value and --split-word
-// carried a macOS-and-Linux column until Windows grew an OCR engine
-// (Windows.Media.Ocr); add a narrow column back the moment a flag needs one
+// Every flag but --semantic is everywhere. The vision strategy value and
+// --split-word carried a macOS-and-Linux column until Windows grew an OCR
+// engine (Windows.Media.Ocr); add a narrow column the moment a flag needs one
 // rather than reaching for the nearest fit.
 func PlatformSupport() parity.Declaration {
+	return parity.Join(
+		parity.On(parity.KindModeFlag, parity.Platforms{parity.Darwin}, noteSemantic,
+			FlagSemantic.String(),
+		),
+		everywhere(),
+	)
+}
+
+// noteSemantic is why --semantic is macOS only, worded as the sentence the
+// load-time warning and the published table print.
+const noteSemantic = "this fork ships for macOS only, and the view with the labels hidden and " +
+	"Tab back to them exists only in the macOS overlay and search field"
+
+// everywhere is every flag whose column is every platform.
+func everywhere() parity.Declaration {
 	return parity.Everywhere(parity.KindModeFlag,
 		FlagAction.String(),
 		FlagModifier.String(),

@@ -313,6 +313,7 @@ func (h *handlerState) handleHintsModeKey(key string) {
 		filterRoles := h.hints.Context.FilterRoles()
 		filterTextContains := h.hints.Context.FilterTextContains()
 		startWithSearch := h.hints.Context.StartWithSearch()
+		semanticSearch := h.hints.Context.Semantic()
 		confirmOnLabel := h.hints.Context.ConfirmOnLabel()
 		exitOnUnmatched := h.hints.Context.ExitOnUnmatched()
 		strategyOverride := h.hints.Context.StrategyOverride()
@@ -334,6 +335,7 @@ func (h *handlerState) handleHintsModeKey(key string) {
 					FilterRoles:           filterRoles,
 					FilterTextContains:    filterTextContains,
 					Search:                &startWithSearch,
+					Semantic:              &semanticSearch,
 					ConfirmOnLabel:        &confirmOnLabel,
 					ExitOnUnmatched:       &exitOnUnmatched,
 					Strategy:              &strategyOverride,
@@ -356,6 +358,7 @@ func (h *handlerState) handleHintsModeKey(key string) {
 					h.hints.Context.SetFilterRoles(filterRoles)
 					h.hints.Context.SetFilterTextContains(filterTextContains)
 					h.hints.Context.SetStartWithSearch(startWithSearch)
+					h.hints.Context.SetSemantic(semanticSearch)
 					h.hints.Context.SetConfirmOnLabel(confirmOnLabel)
 					h.hints.Context.SetExitOnUnmatched(exitOnUnmatched)
 					h.hints.Context.SetStrategyOverride(strategyOverride)
@@ -377,12 +380,34 @@ func (h *handlerState) handleSearchInputKey(key string) {
 	ctx := h.hints.Context
 	normalizedKey := configpkg.NormalizeKeyForComparison(key)
 
+	// Tab brings the labels back in a search that hid them. A text search
+	// handles it below exactly as it always has.
+	if normalizedKey == configpkg.KeyNameTab && ctx.Semantic() {
+		h.cancelHintSearch()
+
+		return
+	}
+
 	switch normalizedKey {
 	case configpkg.KeyNameEscape:
+		// A search that picks by description is the whole of the mode, so
+		// leaving it leaves hints; a text search steps back to the labels.
+		if ctx.Semantic() {
+			h.exitMode()
+
+			return
+		}
+
 		h.cancelHintSearch()
 
 		return
 	case configpkg.KeyNameReturn:
+		if ctx.Semantic() {
+			h.submitSemanticSearch()
+
+			return
+		}
+
 		h.confirmHintSearch()
 
 		return
@@ -417,6 +442,14 @@ func (h *handlerState) applyHintSearchFilter() {
 
 	sourceHints := ctx.SourceHints()
 	if sourceHints == nil {
+		return
+	}
+
+	// A search that picks by description filters nothing as it is typed:
+	// every target stays in view until Return asks which one the text means.
+	if ctx.Semantic() {
+		h.editSemanticQuery()
+
 		return
 	}
 
@@ -464,6 +497,8 @@ func (h *handlerState) confirmHintSearch() {
 
 	ctx := h.hints.Context
 	ctx.SetSearchActive(false)
+	ctx.SetSearchStatus("")
+	ctx.SetLabelsHidden(false)
 	h.hideHintSearchInput()
 
 	visibleHints := ctx.Hints()
@@ -520,6 +555,10 @@ func (h *handlerState) cancelHintSearch() {
 	ctx := h.hints.Context
 	ctx.SetSearchQuery("")
 	ctx.SetSearchActive(false)
+	ctx.SetSearchStatus("")
+	// The labels come back with the source hints: this is Tab's way out of a
+	// search that hid them.
+	ctx.SetLabelsHidden(false)
 
 	if sourceHints := ctx.SourceHints(); sourceHints != nil {
 		setHintsErr := ctx.SetVisibleHints(sourceHints)
@@ -550,6 +589,7 @@ func (h *handlerState) drawHintSearchInput() {
 		Screen:      h.screenBounds,
 		Query:       ctx.SearchQuery(),
 		ResultCount: resultCount,
+		Status:      ctx.SearchStatus(),
 	})
 	if err != nil {
 		if derrors.IsNotSupported(err) {

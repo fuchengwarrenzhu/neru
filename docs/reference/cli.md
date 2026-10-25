@@ -424,6 +424,12 @@ Takes no value. Modes: `hints`.
 
 Hide every hint until the search has text. Needs --search.
 
+#### `--semantic`
+
+Takes no value. Modes: `hints`.
+
+Pick the target the search text describes instead of matching it as text: labels hide, outlines stay, and Return sends the text with each target's role, title, description, parent, popup flag and app to api.typesafe.ai, then acts on the one it picks. Tab brings the labels back. Needs --search.
+
 #### `--confirm-on-label`
 
 Takes no value. Modes: `hints`.
@@ -525,6 +531,11 @@ It works on every platform and needs an OCR language pack on Windows. See
 ```bash
 neru hints --action left_click --role button --text submit
 ```
+
+`--search --semantic` picks the hint the search text describes rather than
+matching it, by asking a remote model on Return (macOS only).
+[Using Neru](../guide/using-neru.md#describe-the-control-instead-of-typing-its-label)
+covers the keys and [Privacy](../guide/using-neru.md#privacy) what is sent.
 
 #### Supplying your own targets
 

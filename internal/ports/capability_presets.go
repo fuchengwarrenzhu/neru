@@ -46,6 +46,21 @@ func DarwinCapabilities() PlatformCapabilities {
 		),
 		KeyFeed: supportedCapability("key injection available via CGEventPost"),
 		Systray: supportedCapability("tray icon available via NSStatusItem"),
+		TargetSelection: supportedCapability(
+			"semantic hint search (hints --search --semantic) asks the Jev API at " +
+				"api.typesafe.ai on Return, with the key in " +
+				"~/.config/credentials/typesafe-ai/apikey; nothing is sent without such a binding",
+		),
+	}
+}
+
+// semanticSearchStub is the target-selection answer off macOS, where this fork
+// does not ship: the hidden-label view and Tab back to the labels exist only in
+// the macOS overlay and search field.
+func semanticSearchStub() FeatureCapability {
+	return FeatureCapability{
+		Status: FeatureStatusStub,
+		Detail: "semantic hint search is macOS only in this fork",
 	}
 }
 
@@ -151,6 +166,7 @@ func LinuxCapabilities() PlatformCapabilities {
 		Systray: supportedCapability(
 			"tray icon available via the D-Bus StatusNotifierItem + dbusmenu protocols",
 		),
+		TargetSelection: semanticSearchStub(),
 	}
 }
 
@@ -214,5 +230,6 @@ func WindowsCapabilities() PlatformCapabilities {
 		Systray: supportedCapability(
 			"tray icon available via the Win32 notification area (Shell_NotifyIcon)",
 		),
+		TargetSelection: semanticSearchStub(),
 	}
 }

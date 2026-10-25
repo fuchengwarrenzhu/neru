@@ -152,6 +152,16 @@ func WithVisionPort(vision ports.VisionPort) Option {
 	}
 }
 
+// WithTargetSelector sets the selector a --semantic hint search asks.
+// Note: targetSelector can be nil, will be initialized during app startup if not provided.
+func WithTargetSelector(targetSelector ports.TargetSelector) Option {
+	return func(a *App) error {
+		a.targetSelector = targetSelector
+
+		return nil
+	}
+}
+
 // WithSystemPort sets the system port implementation.
 // Note: systemPort can be nil, will be initialized during app startup if not provided.
 func WithSystemPort(systemPort ports.SystemPort) Option {

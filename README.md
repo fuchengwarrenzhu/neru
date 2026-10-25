@@ -31,7 +31,7 @@ Neru does what Vimium does in the browser, for every app, window, menu bar and d
 - **Fast.** The event tap sits on every keystroke, and Neru treats any added latency as a bug.
 - **No per-app hacks.** Good defaults, plus per-app overrides you write yourself, applied when focus changes.
 - **Scriptable.** Hotkeys, the `neru` CLI and the IPC socket run the same commands, so a binding works unchanged from skhd, Hammerspoon, Raycast or a shell script. Hooks run your own steps when a mode opens or closes, the focused app changes, or Neru pauses. `neru watch` streams the same events live, filtered with `--event`, `neru query` reports displays, the cursor and hint targets, and `--json` on the status and query commands gives a program something to parse. The IPC protocol is versioned, with JSON schemas and a Go client package.
-- **Private.** OCR and element detection run on-device. No telemetry, no accounts, and typed text never reaches the log.
+- **Private.** OCR and element detection run on-device. No telemetry[^network], no accounts, and typed text never reaches the log.
 - **Fails loudly.** A mistyped flag in a binding fails config validation instead of doing nothing when you press the key.
 
 ## Install
@@ -178,3 +178,5 @@ MIT. See [LICENSE](LICENSE).
 Made with ❤️ by <a href="https://github.com/y3owk1n">y3owk1n</a>
 
 </div>
+
+[^network]: One opt-in feature uses the network: a hint binding with `--semantic` sends your search text and the on-screen controls' names and roles to api.typesafe.ai when you press Return. Nothing is sent without such a binding. See [Privacy](docs/guide/using-neru.md#privacy).

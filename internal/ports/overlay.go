@@ -46,6 +46,12 @@ type HintsFrame struct {
 	// Hints are the labels to draw, already narrowed to what the user should
 	// see.
 	Hints []*hint.Interface
+
+	// LabelsHidden draws each hint's target boundary without its label, for a
+	// search that picks a target by description rather than by label. It
+	// shows nothing unless the boundary highlight is enabled. Only the macOS
+	// overlay honors it; the others draw the labels.
+	LabelsHidden bool
 }
 
 // Mode names the mode a hints frame draws.
@@ -241,6 +247,12 @@ type HintSearch struct {
 
 	// ResultCount is how many hints still match the query.
 	ResultCount int
+
+	// Status, when set, is drawn in place of the result count: a short word
+	// about a search that picks its target remotely, such as "…" while it
+	// waits or "no single match". Only the macOS overlay draws it; the others
+	// keep the count.
+	Status string
 }
 
 // MouseActionIndicatorStyle configures a transient mouse action indicator.

@@ -250,12 +250,7 @@ func (a *Adapter) DrawHintSearch(search ports.HintSearch) error {
 		return frameErr
 	}
 
-	drawErr := a.manager.DrawHintSearchInput(
-		search.Query,
-		search.ResultCount,
-		frame,
-		style.HintSearchInput,
-	)
+	drawErr := a.drawHintSearchInput(search, frame, style.HintSearchInput)
 	if drawErr != nil {
 		if derrors.IsNotSupported(drawErr) {
 			return drawErr
@@ -712,7 +707,9 @@ func (a *Adapter) drawHints(frame ports.HintsFrame) error {
 		)
 	}
 
-	drawErr := a.manager.DrawHintsWithStyle(drawn, ResolvedStyle(a.styles).Hints)
+	style := ResolvedStyle(a.styles).Hints.WithLabelsHidden(frame.LabelsHidden)
+
+	drawErr := a.manager.DrawHintsWithStyle(drawn, style)
 	if drawErr != nil {
 		// A backend with no hint surface reports CodeNotSupported, and the
 		// caller degrades on that code — so it travels unwrapped.
@@ -724,6 +721,26 @@ func (a *Adapter) drawHints(frame ports.HintsFrame) error {
 	}
 
 	return nil
+}
+
+// drawHintSearchInput draws the badge with its status where the backend can
+// say one, and with the result count where it cannot.
+func (a *Adapter) drawHintSearchInput(
+	search ports.HintSearch,
+	frame overlayHints.SearchInputFrame,
+	style overlayHints.SearchInputStyle,
+) error {
+	if drawer, ok := a.manager.(HintSearchStatusDrawer); ok {
+		return drawer.DrawHintSearchInputStatus(
+			search.Query,
+			search.Status,
+			search.ResultCount,
+			frame,
+			style,
+		)
+	}
+
+	return a.manager.DrawHintSearchInput(search.Query, search.ResultCount, frame, style)
 }
 
 // drawGrid draws the cells a grid frame carries.

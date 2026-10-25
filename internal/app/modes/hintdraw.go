@@ -21,10 +21,7 @@ func (h *handlerState) drawHints(filteredHints []*domainHint.Interface) {
 		return
 	}
 
-	frame := ports.HintsFrame{
-		Screen: h.screenBounds,
-		Hints:  filteredHints,
-	}
+	frame := h.hintsFrame(filteredHints)
 
 	if h.hintsFrameOnScreen {
 		h.redrawFrame(frame, "update hints overlay")
@@ -37,4 +34,14 @@ func (h *handlerState) drawHints(filteredHints []*domainHint.Interface) {
 	// The overlay was shown and switched whether or not the backend had a
 	// surface to draw the labels on, so the next keystroke is a redraw.
 	h.hintsFrameOnScreen = true
+}
+
+// hintsFrame is the hints surface for the given labels on the active screen,
+// drawn without the labels while a --semantic search hides them.
+func (h *handlerState) hintsFrame(hints []*domainHint.Interface) ports.HintsFrame {
+	return ports.HintsFrame{
+		Screen:       h.screenBounds,
+		Hints:        hints,
+		LabelsHidden: h.hints != nil && h.hints.Context != nil && h.hints.Context.LabelsHidden(),
+	}
 }
