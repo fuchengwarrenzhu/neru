@@ -84,6 +84,14 @@ func (r Ramp) ParamsFor(stepPx int) Params {
 	}
 }
 
+// SpeedAfter is the speed reached once motion has run for held without a
+// pause: the floor, climbing at Acceleration, settled at the cap. It is the
+// closed form of what Integrator.Step accumulates tick by tick, for a caller
+// that has a schedule to keep rather than a position to integrate.
+func (p Params) SpeedAfter(held time.Duration) float64 {
+	return math.Min(p.Speed+p.Acceleration*held.Seconds(), p.MaxSpeed)
+}
+
 // Integrator carries the subpixel position and current speed between ticks.
 // Bounds clamp the position; an empty rectangle means no clamp.
 type Integrator struct {

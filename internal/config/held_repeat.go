@@ -50,17 +50,19 @@ func (c HeldRepeatConfig) HeldMotion(actions []string) (motion.Direction, int, b
 	return dir, max(absInt(deltaX), absInt(deltaY)), true
 }
 
-// Ramp is the glide's speed in the units the integrator takes: a binding's
-// step is worth one interval of travel, and the accel options say whether and
-// how far that speed climbs. With accel_enabled off the multiplier is 1, a
-// constant-speed glide.
-func (c HeldRepeatConfig) Ramp() motion.Ramp {
+// RampFor is how fast a held binding running the named action goes, in the
+// units the motion package takes: one step is worth one interval, and the
+// accel options say whether and how far that climbs. The glide reads it for
+// move_mouse_relative and the repeat loop for everything else, so the two
+// accelerate on one ramp. An action accel_targets does not name gets a
+// multiplier of 1: a constant-speed glide, or the plain interval_ms repeat.
+func (c HeldRepeatConfig) RampFor(name action.Name) motion.Ramp {
 	ramp := motion.Ramp{
 		Interval:   time.Duration(c.Interval) * time.Millisecond,
 		Multiplier: 1,
 	}
 
-	if c.AccelAppliesTo(string(action.NameMoveMouseRelative)) {
+	if c.AccelAppliesTo(string(name)) {
 		ramp.Multiplier = c.AccelMaxMultiplier
 		ramp.Duration = time.Duration(c.AccelRampMs) * time.Millisecond
 	}

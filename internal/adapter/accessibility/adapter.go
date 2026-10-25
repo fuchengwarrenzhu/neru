@@ -210,6 +210,15 @@ func (a *Adapter) PerformActionAtPoint(
 	return nil
 }
 
+// CancelScroll drops whatever smooth scroll has not posted yet
+// (ports.ScrollCanceler). Only the macOS client can; elsewhere there is
+// nothing to drop and this does nothing.
+func (a *Adapter) CancelScroll() {
+	if canceler, ok := a.client.(ports.ScrollCanceler); ok {
+		canceler.CancelScroll()
+	}
+}
+
 // Scroll performs a scroll action at the current cursor position.
 func (a *Adapter) Scroll(
 	_ context.Context,
@@ -500,7 +509,10 @@ func (a *Adapter) processClickableNodesConcurrent(
 }
 
 // Ensure Adapter implements ports.AccessibilityPort.
-var _ ports.AccessibilityPort = (*Adapter)(nil)
+var (
+	_ ports.AccessibilityPort = (*Adapter)(nil)
+	_ ports.ScrollCanceler    = (*Adapter)(nil)
+)
 
 // finishCollection reports what every source together produced.
 func (a *Adapter) finishCollection(

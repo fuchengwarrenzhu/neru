@@ -73,6 +73,33 @@ func TestRamp_ParamsFor(t *testing.T) {
 	}
 }
 
+func TestParams_SpeedAfter(t *testing.T) {
+	tests := []struct {
+		name   string
+		params motion.Params
+		held   time.Duration
+		want   float64
+	}{
+		{"at the press it is the floor", ramp.ParamsFor(stepPx), 0, 200},
+		{"halfway up the ramp", ramp.ParamsFor(stepPx), 100 * time.Millisecond, 400},
+		{"past the ramp it holds the cap", ramp.ParamsFor(stepPx), time.Second, 600},
+		{
+			"zero duration is the cap at once",
+			motion.Ramp{Interval: 50 * time.Millisecond, Multiplier: 3}.ParamsFor(stepPx),
+			0,
+			600,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.params.SpeedAfter(tt.held); got != tt.want {
+				t.Errorf("SpeedAfter(%v) = %v, want %v", tt.held, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestIntegrator_Step_RampsToTheCap(t *testing.T) {
 	params := ramp.ParamsFor(stepPx)
 	integ := motion.NewIntegrator(image.Point{}, image.Rectangle{})

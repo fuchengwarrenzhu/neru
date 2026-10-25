@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/y3owk1n/neru/internal/config"
+	"github.com/y3owk1n/neru/internal/domain/action"
 	"github.com/y3owk1n/neru/internal/domain/motion"
 )
 
@@ -162,29 +163,38 @@ func TestHeldRepeatConfig_HeldMotion(t *testing.T) {
 	}
 }
 
-func TestHeldRepeatConfig_Ramp(t *testing.T) {
+func TestHeldRepeatConfig_RampFor(t *testing.T) {
 	base := config.HeldRepeatConfig{
 		Enabled:            true,
 		Interval:           50,
 		AccelRampMs:        500,
 		AccelMaxMultiplier: 4,
-		AccelTargets:       []string{testMoveMouseRelative},
+		AccelTargets:       []string{testMoveMouseRelative, "scroll_down"},
 	}
 
-	constant := base.Ramp()
+	constant := base.RampFor(action.NameMoveMouseRelative)
 	if constant.Multiplier != 1 || constant.Duration != 0 {
-		t.Errorf("accel off: Ramp() = %+v, want a multiplier of 1 and no duration", constant)
+		t.Errorf("accel off: RampFor() = %+v, want a multiplier of 1 and no duration", constant)
 	}
 
 	if constant.Interval != 50*time.Millisecond {
-		t.Errorf("Ramp().Interval = %v, want 50ms", constant.Interval)
+		t.Errorf("RampFor().Interval = %v, want 50ms", constant.Interval)
 	}
 
 	accelerated := base
 	accelerated.AccelEnabled = true
 
-	ramp := accelerated.Ramp()
-	if ramp.Multiplier != 4 || ramp.Duration != 500*time.Millisecond {
-		t.Errorf("accel on: Ramp() = %+v, want 4x over 500ms", ramp)
+	for _, name := range []action.Name{action.NameMoveMouseRelative, action.NameScrollDown} {
+		ramp := accelerated.RampFor(name)
+		if ramp.Multiplier != 4 || ramp.Duration != 500*time.Millisecond {
+			t.Errorf("accel on: RampFor(%s) = %+v, want 4x over 500ms", name, ramp)
+		}
+	}
+
+	if ramp := accelerated.RampFor(action.NameScrollUp); ramp.Multiplier != 1 {
+		t.Errorf(
+			"RampFor(scroll_up) = %+v, want a multiplier of 1 for an action accel_targets leaves out",
+			ramp,
+		)
 	}
 }

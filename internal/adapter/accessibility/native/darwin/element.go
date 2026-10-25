@@ -712,6 +712,11 @@ func ScrollAtCursor(deltaX, deltaY int, modifiers action.Modifiers) error {
 	return darwin.ScrollAtCursor(deltaX, deltaY, modifiers)
 }
 
+// CancelScroll drops whatever smooth scroll has not posted yet.
+func CancelScroll() {
+	darwin.CancelScroll()
+}
+
 // CurrentCursorPosition returns the current cursor position in screen coordinates.
 func CurrentCursorPosition() image.Point {
 	return darwin.CursorPosition()

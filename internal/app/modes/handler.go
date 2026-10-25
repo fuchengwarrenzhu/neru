@@ -10,6 +10,7 @@ import (
 
 	"github.com/y3owk1n/neru/internal/app/components"
 	"github.com/y3owk1n/neru/internal/app/heldmotion"
+	"github.com/y3owk1n/neru/internal/app/heldrepeat"
 	"github.com/y3owk1n/neru/internal/app/services"
 	"github.com/y3owk1n/neru/internal/app/services/modeindicator"
 	"github.com/y3owk1n/neru/internal/app/services/stickyindicator"
@@ -231,6 +232,9 @@ type handlerState struct {
 	// and a custom goroutine drives the repeat at heldRepeatInterval.
 	heldRepeatingKey    string
 	heldRepeatingCancel context.CancelFunc
+	// heldRepeatStream says whether that repeat sped a scroll up, so the
+	// release can drop the smooth scroll it banked (heldrepeat.Stream).
+	heldRepeatStream *heldrepeat.Stream
 
 	// motion is this handler's namespace in the held-key glide controller;
 	// nil (or a nil-safe empty group) when the app runs without one.
@@ -649,12 +653,20 @@ func (h *handlerState) screenScale(bounds image.Rectangle) float64 {
 	return scale
 }
 
-// stopHeldRepeat cancels any running held-key repeat goroutine.
+// stopHeldRepeat cancels any running held-key repeat goroutine. A repeat that
+// sped a scroll up also drops the smooth scroll it banked, here under the lock,
+// so every press handled after this one scrolls on its own. Only a repeat
+// already mid-dispatch can still post, and then one step at most.
 func (h *handlerState) stopHeldRepeat() {
 	if h.heldRepeatingCancel != nil {
 		h.heldRepeatingCancel()
 		h.heldRepeatingCancel = nil
 	}
 
+	if h.heldRepeatStream.Scrolled() && h.scrollService != nil {
+		h.scrollService.CancelScroll()
+	}
+
+	h.heldRepeatStream = nil
 	h.heldRepeatingKey = ""
 }

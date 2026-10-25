@@ -76,6 +76,9 @@ type Deps struct {
 	// Motion is the binder's namespace in the held-key glide controller;
 	// nil leaves every held move_mouse_relative on the repeat path.
 	Motion *heldmotion.Group
+	// CancelScroll drops the smooth scroll a released accelerated repeat
+	// banked (heldrepeat.Stream). May be nil.
+	CancelScroll func()
 
 	Logger *zap.Logger
 }
@@ -95,6 +98,7 @@ type Binder struct {
 	publishRegistered func(keys []string)
 	ctx               func() context.Context
 	motion            *heldmotion.Group
+	cancelScroll      func()
 	logger            *zap.Logger
 
 	// hotkeyRepeatMu guards the repeat cancel table against the event-tap
@@ -124,6 +128,7 @@ func New(deps Deps) *Binder {
 		runActionSequence:   deps.RunSequence,
 		publishRegistered:   deps.PublishRegisteredHotkeys,
 		motion:              deps.Motion,
+		cancelScroll:        deps.CancelScroll,
 		ctx:                 deps.Context,
 		logger:              logger.Named("app.hotkey"),
 		hotkeyRepeatCancels: make(map[string]context.CancelFunc),

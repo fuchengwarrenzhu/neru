@@ -316,6 +316,12 @@ func MouseUp(button action.MouseButton) error {
 	return nil
 }
 
+// CancelScroll drops whatever smooth scroll has not posted yet
+// (ports.ScrollCanceler).
+func CancelScroll() {
+	scrollAnim.stop()
+}
+
 // ScrollAtCursor performs a scroll action at the current cursor position,
 // stamping modifiers onto the event so a ctrl-modified scroll zooms rather than
 // pans. Under smooth scroll the set travels on the animation request, because
