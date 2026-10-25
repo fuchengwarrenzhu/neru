@@ -87,7 +87,11 @@ func TestGroup_Press_TwoKeysGlideDiagonallyUntilReleased(t *testing.T) {
 		t.Fatalf("last position %v, want down-right of the start", last)
 	}
 
-	if last.X != last.Y {
+	// The keys go down and come up one call apart, so a tick can land between
+	// the two presses (one extra step right) or the two releases (one extra
+	// step down). Anything past one tick's travel is real drift.
+	const oneTick = 10
+	if drift := last.X - last.Y; drift < -oneTick || drift > oneTick {
 		t.Errorf("diagonal drifted: %v", last)
 	}
 }
