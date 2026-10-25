@@ -297,7 +297,11 @@ ElementInfo *NeruGetElementInfo(void *element) {
 		info->isVisible = true;  // default visible when attribute not available
 
 		static CFStringRef kVisibleAttr = CFSTR("AXVisible");
-		const CFIndex attributeCount = 13;
+		static CFStringRef kHasPopupAttr = CFSTR("AXHasPopup");
+		const CFIndex attributeCount = 14;
+		// AXHasPopup is the one attribute the walk does not depend on, so a reply
+		// short of it alone still describes the element.
+		const CFIndex requiredCount = 13;
 
 		CFArrayRef attributes = CFArrayCreate(
 		    NULL,
@@ -315,6 +319,7 @@ ElementInfo *NeruGetElementInfo(void *element) {
 		        kAXFocusedAttribute,
 		        kAXHiddenAttribute,
 		        kVisibleAttr,
+		        kHasPopupAttr,
 		    },
 		    attributeCount, &kCFTypeArrayCallBacks);
 
@@ -343,7 +348,7 @@ ElementInfo *NeruGetElementInfo(void *element) {
 		// The target app's own accessibility code builds this reply, so it can be
 		// short. Reading past its end throws an exception that aborts the daemon,
 		// so this treats a short reply like any other unreadable element.
-		if (error != kAXErrorSuccess || !values || CFArrayGetCount(values) < attributeCount) {
+		if (error != kAXErrorSuccess || !values || CFArrayGetCount(values) < requiredCount) {
 			if (values)
 				CFRelease(values);
 			pid_t pid;
@@ -353,7 +358,7 @@ ElementInfo *NeruGetElementInfo(void *element) {
 			return info;
 		}
 
-		// values has one entry per requested attribute from here on. Slots for
+		// values has an entry for every required attribute from here on. Slots for
 		// unsupported/errored attributes hold an AX error placeholder, or
 		// kCFNull when read one at a time, which the CFGetTypeID checks below reject.
 		CFTypeRef positionValue = (CFTypeRef)CFArrayGetValueAtIndex(values, 0);
@@ -426,6 +431,16 @@ ElementInfo *NeruGetElementInfo(void *element) {
 		CFTypeRef visibleValue = (CFTypeRef)CFArrayGetValueAtIndex(values, 12);
 		if (visibleValue && CFGetTypeID(visibleValue) == CFBooleanGetTypeID()) {
 			info->isVisible = CFBooleanGetValue((CFBooleanRef)visibleValue);
+		}
+
+		// Web content answers AXHasPopup as a boolean or a number; an element
+		// that does not answer it opens no popup.
+		CFTypeRef hasPopupValue = CFArrayGetCount(values) > 13 ? (CFTypeRef)CFArrayGetValueAtIndex(values, 13) : NULL;
+		if (hasPopupValue && CFGetTypeID(hasPopupValue) == CFBooleanGetTypeID()) {
+			info->hasPopup = CFBooleanGetValue((CFBooleanRef)hasPopupValue);
+		} else if (hasPopupValue && CFGetTypeID(hasPopupValue) == CFNumberGetTypeID()) {
+			int popup = 0;
+			info->hasPopup = CFNumberGetValue((CFNumberRef)hasPopupValue, kCFNumberIntType, &popup) && popup != 0;
 		}
 
 		CFRelease(values);

@@ -47,6 +47,7 @@ typedef struct {
 	bool hasPressAction;       ///< Whether element has AXPress action (pre-fetched)
 	bool hasShowMenuAction;    ///< Whether element has AXShowMenu action (pre-fetched)
 	bool preActionsFetched;    ///< Whether actions were successfully pre-fetched
+	bool hasPopup;             ///< Whether activating the element opens a menu or popup (AXHasPopup)
 } ElementInfo;
 
 #pragma mark - Permission Functions

@@ -137,6 +137,7 @@ type ElementInfo struct {
 	hasPressAction    bool
 	hasShowMenuAction bool
 	preActionsFetched bool
+	hasPopup          bool
 	pid               int
 }
 
@@ -228,6 +229,12 @@ func (ei *ElementInfo) HasPressAction() bool {
 // HasShowMenuAction returns whether the element has AXShowMenu action.
 func (ei *ElementInfo) HasShowMenuAction() bool {
 	return ei.hasShowMenuAction
+}
+
+// HasPopup reports whether activating the element opens a menu or popup
+// (AXHasPopup).
+func (ei *ElementInfo) HasPopup() bool {
+	return ei.hasPopup
 }
 
 // PID returns the process ID.
@@ -346,6 +353,7 @@ func (e *Element) Info() (*ElementInfo, error) {
 		hasPressAction:    bool(cInfo.hasPressAction),
 		hasShowMenuAction: bool(cInfo.hasShowMenuAction),
 		preActionsFetched: bool(cInfo.preActionsFetched),
+		hasPopup:          bool(cInfo.hasPopup),
 		pid:               int(cInfo.pid),
 	}
 

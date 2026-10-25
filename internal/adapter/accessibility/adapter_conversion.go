@@ -22,6 +22,19 @@ func (a *Adapter) convertToDomainElement(node ax.Node) (*element.Element, error)
 		searchText = provider.SearchText()
 	}
 
+	// The context was read during the walk, so this asks the platform nothing.
+	var (
+		subrole, parentRole, parentTitle string
+		hasPopup                         bool
+	)
+
+	if described, ok := node.(describedNode); ok {
+		subrole = described.Subrole()
+		parentRole = described.ParentRole()
+		parentTitle = described.ParentTitle()
+		hasPopup = described.HasPopup()
+	}
+
 	// Create element with options
 	domElement, elementErr := element.NewElement(
 		elementID,
@@ -34,6 +47,9 @@ func (a *Adapter) convertToDomainElement(node ax.Node) (*element.Element, error)
 		element.WithSearchText(searchText),
 		element.WithFocused(node.IsFocused()),
 		element.WithIdentifier(node.Identifier()),
+		element.WithSubrole(subrole),
+		element.WithContext(parentRole, parentTitle),
+		element.WithHasPopup(hasPopup),
 	)
 	if elementErr != nil {
 		return nil, derrors.Wrap(
@@ -44,4 +60,15 @@ func (a *Adapter) convertToDomainElement(node ax.Node) (*element.Element, error)
 	}
 
 	return domElement, nil
+}
+
+// describedNode is the part of a node that says where it sits and what it
+// opens, which the macOS walk answers and the other platforms' nodes do not.
+// It is what lets a target selector tell a toolbar's "Code" menu button from a
+// heading with the same title.
+type describedNode interface {
+	Subrole() string
+	ParentRole() string
+	ParentTitle() string
+	HasPopup() bool
 }

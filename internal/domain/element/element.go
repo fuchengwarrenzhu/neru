@@ -96,6 +96,10 @@ type Element struct {
 	source      Source
 	focused     bool
 	identifier  string
+	subrole     string
+	parentRole  string
+	parentTitle string
+	hasPopup    bool
 }
 
 // NewElement creates a new element with validation.
@@ -183,6 +187,30 @@ func WithIdentifier(identifier string) Option {
 	}
 }
 
+// WithSubrole sets the element's accessibility subrole, such as
+// AXToolbarButton.
+func WithSubrole(subrole string) Option {
+	return func(e *Element) {
+		e.subrole = subrole
+	}
+}
+
+// WithContext sets what the element sits in: its parent's role and the
+// parent's title.
+func WithContext(parentRole, parentTitle string) Option {
+	return func(e *Element) {
+		e.parentRole = parentRole
+		e.parentTitle = parentTitle
+	}
+}
+
+// WithHasPopup sets whether activating the element opens a menu or popup.
+func WithHasPopup(hasPopup bool) Option {
+	return func(e *Element) {
+		e.hasPopup = hasPopup
+	}
+}
+
 // ID returns the element ID.
 func (e *Element) ID() ID {
 	return e.id
@@ -243,6 +271,29 @@ func (e *Element) IsFocused() bool {
 // Identifier returns the identifier the app's developer gave the element.
 func (e *Element) Identifier() string {
 	return e.identifier
+}
+
+// Subrole returns the element's accessibility subrole, empty when it has none
+// or was not found in the accessibility tree.
+func (e *Element) Subrole() string {
+	return e.subrole
+}
+
+// ParentRole returns the role of the element's parent in the accessibility
+// tree, empty when unknown.
+func (e *Element) ParentRole() string {
+	return e.parentRole
+}
+
+// ParentTitle returns the title of the element's parent in the accessibility
+// tree, empty when unknown.
+func (e *Element) ParentTitle() string {
+	return e.parentTitle
+}
+
+// HasPopup reports whether activating the element opens a menu or popup.
+func (e *Element) HasPopup() bool {
+	return e.hasPopup
 }
 
 // Center returns the center point of the element.
