@@ -143,3 +143,53 @@ func TestSimulation_SemanticHintSearchKeepsTheSearchOnNoMatch(t *testing.T) {
 		t.Errorf("mode after Tab = %s, want hints", domain.ModeString(mode))
 	}
 }
+
+// TestSimulation_PlainSearchOverASemanticSessionIsPlain covers a plain
+// `hints --search` binding pressed while a semantic search is open. That is a
+// refresh, and --semantic is never inherited across one: the labels come
+// back, typing filters them locally, and Return clicks the match without
+// asking the selector.
+func TestSimulation_PlainSearchOverASemanticSessionIsPlain(t *testing.T) {
+	const plainSearchHotkey = "Primary+Shift+F"
+
+	cfg := simConfig()
+	cfg.Hints.BoundaryHighlight.Enabled = true
+	cfg.Hotkeys.Bindings[semanticHotkey] = []string{semanticBinding}
+	cfg.Hotkeys.Bindings[plainSearchHotkey] = []string{"hints --action left_click --search"}
+
+	elements := threeButtons(t)
+	sim := newSimHarness(t, cfg, elements)
+	sim.textInput.Started = true
+
+	sim.pressHotkey(semanticHotkey)
+	sim.waitMode(domain.ModeHints)
+	sim.waitFor("semantic field opened", func() bool { return sim.textInput.StartCount() == 1 })
+
+	sim.pressHotkey(plainSearchHotkey)
+	sim.waitFor("plain field opened", func() bool { return sim.textInput.StartCount() == 2 })
+
+	if sim.overlay.lastHintLabelsHidden() {
+		t.Fatal("labels still hidden after a plain search refreshed the session")
+	}
+
+	callbacks := sim.textInput.Callbacks()
+	if callbacks.OnTab != nil {
+		t.Error("the plain search took Tab from the field")
+	}
+
+	callbacks.OnQueryChanged("cancel")
+	sim.waitFor("hints narrowed locally", func() bool {
+		return len(sim.overlay.lastHintLabels()) == 1
+	})
+
+	callbacks.OnConfirm()
+	sim.waitFor("the match clicked", func() bool { return len(sim.ax.recordedClicks()) == 1 })
+
+	if clicks := sim.ax.recordedClicks(); clicks[0].point != elements[1].Center() {
+		t.Errorf("click at %v, want the text match at %v", clicks[0].point, elements[1].Center())
+	}
+
+	if asked := len(sim.selector.Queries()); asked != 0 {
+		t.Errorf("a plain search asked the selector %d times, want 0", asked)
+	}
+}

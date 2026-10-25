@@ -60,9 +60,11 @@ func applyHintFlagOverrides(ctx *hints.Context, activation modecmd.Activation) {
 		ctx.SetHideOnEmptySearch(*activation.HideOnEmptySearch)
 	}
 
-	if activation.Semantic != nil {
-		ctx.SetSemantic(*activation.Semantic)
-	}
+	// Unlike the flags around it, --semantic is never inherited: it decides
+	// whether the search sends text off the machine, so only an activation
+	// that asks for it gets it. A plain `hints --search` pressed over a
+	// semantic session is a plain search.
+	ctx.SetSemantic(activation.Semantic != nil && *activation.Semantic)
 
 	if activation.ConfirmOnLabel != nil {
 		ctx.SetConfirmOnLabel(*activation.ConfirmOnLabel)

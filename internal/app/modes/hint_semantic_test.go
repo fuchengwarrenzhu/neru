@@ -34,6 +34,8 @@ const (
 	semanticQuery      = "open the code menu"
 	semanticWaitBudget = 5 * time.Second
 	semanticAppID      = "com.example.Editor"
+	// codeTitle is the title of the hint the tests describe.
+	codeTitle = "Code"
 )
 
 // The two input paths a search can take, and the log line a failed selection
@@ -164,7 +166,7 @@ func newSemanticFixture(t *testing.T, field bool) *semanticFixture {
 
 	fixture.hints = []*domainhint.Interface{
 		mustNewModeHint("A", semanticElement(t, "save", "Save", image.Rect(10, 10, 90, 40))),
-		mustNewModeHint("S", semanticElement(t, "code", "Code", image.Rect(110, 10, 190, 40))),
+		mustNewModeHint("S", semanticElement(t, "code", codeTitle, image.Rect(110, 10, 190, 40))),
 		mustNewModeHint("D", semanticElement(t, "help", "Help", image.Rect(210, 10, 290, 40))),
 	}
 
@@ -338,7 +340,7 @@ func TestHandler_SubmitSemanticSearch_AsksOnceOnReturnAndShowsPending(t *testing
 			want := semantic.Candidate{
 				Role:        string(element.RoleButton),
 				Subrole:     "AXToolbarButton",
-				Title:       "Code",
+				Title:       codeTitle,
 				Description: "Code description",
 				ParentRole:  "AXToolbar",
 				ParentTitle: "Repository",
@@ -705,7 +707,7 @@ func TestHandler_SubmitSemanticSearch_LogsNoQueryOrUIText(t *testing.T) {
 	forbidden := []string{
 		semanticQuery,
 		"Save",
-		"Code",
+		codeTitle,
 		"Help",
 		"Repository",
 		"draft the user typed",
@@ -727,5 +729,249 @@ func TestHandler_SubmitSemanticSearch_LogsNoQueryOrUIText(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// visionElement is a hint target read off the screen by OCR: its title is
+// whatever text was there.
+func visionElement(t *testing.T, id, title string, bounds image.Rectangle) *element.Element {
+	t.Helper()
+
+	elem, err := element.NewElement(
+		element.ID(id),
+		bounds,
+		element.RoleButton,
+		element.WithTitle(title),
+		element.WithSource(element.SourceVision),
+	)
+	if err != nil {
+		t.Fatalf("NewElement() error = %v", err)
+	}
+
+	return elem
+}
+
+// replaceHints swaps the session's hints for the given ones, the way a rescan
+// does, without closing the search.
+func (f *semanticFixture) replaceHints(t *testing.T, hints []*domainhint.Interface) {
+	t.Helper()
+
+	f.locked(func(locked *handlerState) {
+		setErr := locked.hints.Context.SetHints(domainhint.NewCollection(hints))
+		if setErr != nil {
+			t.Fatalf("SetHints() error = %v", setErr)
+		}
+	})
+
+	f.hints = hints
+}
+
+func TestSemanticCandidates_KeepsAWindowOrPageTitleOffTheMachine(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		parentRole string
+		wantTitle  string
+	}{
+		{parentRole: "AXWindow", wantTitle: ""},
+		{parentRole: "AXSheet", wantTitle: ""},
+		{parentRole: "AXDrawer", wantTitle: ""},
+		{parentRole: "AXApplication", wantTitle: ""},
+		{parentRole: "AXWebArea", wantTitle: ""},
+		{parentRole: "AXToolbar", wantTitle: "Re: Offer letter"},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.parentRole, func(t *testing.T) {
+			t.Parallel()
+
+			elem, err := element.NewElement(
+				"close",
+				image.Rect(0, 0, 14, 14),
+				element.RoleButton,
+				element.WithTitle("Close"),
+				element.WithContext(testCase.parentRole, "Re: Offer letter"),
+			)
+			if err != nil {
+				t.Fatalf("NewElement() error = %v", err)
+			}
+
+			_, candidates := semanticCandidates(
+				[]*domainhint.Interface{mustNewModeHint("A", elem)},
+				semanticAppID,
+			)
+
+			if len(candidates) != 1 {
+				t.Fatalf("candidates = %d, want 1", len(candidates))
+			}
+
+			if got := candidates[0].ParentRole; got != testCase.parentRole {
+				t.Errorf("ParentRole = %q, want the role kept as %q", got, testCase.parentRole)
+			}
+
+			if got := candidates[0].ParentTitle; got != testCase.wantTitle {
+				t.Errorf("ParentTitle = %q, want %q", got, testCase.wantTitle)
+			}
+		})
+	}
+}
+
+func TestSemanticCandidates_LeavesOutHintsReadOffTheScreen(t *testing.T) {
+	t.Parallel()
+
+	read := mustNewModeHint(
+		"A",
+		visionElement(t, "ocr", "Balance: $4,210", image.Rect(0, 0, 90, 20)),
+	)
+	walked := mustNewModeHint(
+		"S",
+		semanticElement(t, "code", codeTitle, image.Rect(100, 0, 190, 20)),
+	)
+
+	asked, candidates := semanticCandidates([]*domainhint.Interface{read, walked}, semanticAppID)
+
+	if len(candidates) != 1 || candidates[0].Title != codeTitle {
+		t.Fatalf("candidates = %+v, want only the accessibility element", candidates)
+	}
+
+	if len(asked) != 1 || asked[0] != walked {
+		t.Errorf("asked = %d hints, want only the one described", len(asked))
+	}
+}
+
+func TestHandler_SubmitSemanticSearch_SendsNothingForVisionHints(t *testing.T) {
+	fixture := newSemanticFixture(t, true)
+
+	fixture.replaceHints(t, []*domainhint.Interface{
+		mustNewModeHint("A", visionElement(t, "ocr-1", "Inbox", image.Rect(10, 10, 90, 40))),
+		mustNewModeHint("S", visionElement(t, "ocr-2", "Archive", image.Rect(110, 10, 190, 40))),
+	})
+
+	fixture.typeQuery(semanticQuery)
+	fixture.field.EmitConfirm()
+
+	if asked := len(fixture.selector.Queries()); asked != 0 {
+		t.Fatalf("selector asked %d times about hints read off the screen, want 0", asked)
+	}
+
+	if got := fixture.status(); got != semanticStatusVisionOnly {
+		t.Errorf("status = %q, want %q", got, semanticStatusVisionOnly)
+	}
+}
+
+// TestHandler_ApplySemanticSelection_MapsTheIndexPastHintsLeftOut pins that a
+// selection names a hint by its place among the candidates sent, which skips
+// the ones left out, rather than by its place among every hint on screen.
+func TestHandler_ApplySemanticSelection_MapsTheIndexPastHintsLeftOut(t *testing.T) {
+	fixture := newSemanticFixture(t, true)
+
+	code := mustNewModeHint(
+		"S",
+		semanticElement(t, "code", codeTitle, image.Rect(110, 10, 190, 40)),
+	)
+	fixture.replaceHints(t, []*domainhint.Interface{
+		mustNewModeHint("A", visionElement(t, "ocr", "Inbox", image.Rect(10, 10, 90, 40))),
+		code,
+	})
+
+	fixture.typeQuery(semanticQuery)
+	fixture.submit(t)
+	fixture.answer(t, selectorAnswer{selection: semantic.Selection{Index: 0, Matched: true}})
+	fixture.waitForLog(t, "Semantic selection matched")
+
+	moves := fixture.recordedMoves()
+	if want := code.Element().Center(); len(moves) != 1 || moves[0] != want {
+		t.Fatalf("cursor moves = %v, want one to the first candidate sent, at %v", moves, want)
+	}
+}
+
+func TestHandler_EditSemanticQuery_WithdrawsTheQuestionInFlight(t *testing.T) {
+	tests := []struct {
+		name string
+		// change is what the user does while the selector is thinking.
+		change func(fixture *semanticFixture)
+	}{
+		{
+			name:   "retyped",
+			change: func(fixture *semanticFixture) { fixture.typeQuery("save draft") },
+		},
+		{
+			// The field holds only spaces with no edit reported, so Return
+			// itself has to withdraw the question.
+			name: "Return on an empty field",
+			change: func(fixture *semanticFixture) {
+				fixture.locked(func(locked *handlerState) {
+					locked.hints.Context.SetSearchQuery("   ")
+				})
+				fixture.field.EmitConfirm()
+			},
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			fixture := newSemanticFixture(t, true)
+
+			fixture.typeQuery("delete draft")
+			fixture.submit(t)
+			testCase.change(fixture)
+
+			if got := fixture.status(); got != "" {
+				t.Errorf("status after withdrawing = %q, want it cleared", got)
+			}
+
+			fixture.answer(
+				t,
+				selectorAnswer{selection: semantic.Selection{Index: 0, Matched: true}},
+			)
+
+			entry := fixture.waitForLog(t, "Semantic selection dropped")
+			if got := entry.ContextMap()["reason"]; got != staleSuperseded {
+				t.Errorf("drop reason = %v, want %q", got, staleSuperseded)
+			}
+
+			if moves := fixture.recordedMoves(); len(moves) != 0 {
+				t.Errorf("an answer to withdrawn text moved the cursor to %v", moves)
+			}
+
+			if asked := len(fixture.selector.Queries()); asked != 1 {
+				t.Errorf("selector asked %d times, want only the withdrawn question", asked)
+			}
+		})
+	}
+}
+
+// TestHandler_ApplySemanticSelection_ClearsThePendingStatusItDrops covers an
+// answer dropped while it was still the question in flight: the hints were
+// rescanned under it. Nothing more is coming, so "…" must not stay.
+func TestHandler_ApplySemanticSelection_ClearsThePendingStatusItDrops(t *testing.T) {
+	fixture := newSemanticFixture(t, true)
+
+	fixture.typeQuery(semanticQuery)
+	fixture.submit(t)
+	fixture.replaceHints(t, append([]*domainhint.Interface(nil), fixture.hints...))
+	fixture.answer(t, selectorAnswer{selection: semantic.Selection{Index: 0, Matched: true}})
+
+	entry := fixture.waitForLog(t, "Semantic selection dropped")
+	if got := entry.ContextMap()["reason"]; got != staleRescanned {
+		t.Fatalf("drop reason = %v, want %q", got, staleRescanned)
+	}
+
+	fixture.locked(func(locked *handlerState) {
+		if locked.semanticCancel != nil {
+			t.Error("the dropped request is still held as the one in flight")
+		}
+
+		if !locked.hints.Context.SearchActive() {
+			t.Error("the search closed; a rescan should leave it open")
+		}
+	})
+
+	if got := fixture.status(); got != "" {
+		t.Errorf("status after the drop = %q, want the pending status cleared", got)
+	}
+
+	if moves := fixture.recordedMoves(); len(moves) != 0 {
+		t.Errorf("a dropped answer moved the cursor to %v", moves)
 	}
 }

@@ -71,8 +71,12 @@
 	}
 
 	// Tab is taken only when a session asked for it, so a search that did not
-	// keeps typing it into the field as before.
-	if (keyCode == 48 && self.tabCallback && ![self hasMarkedText]) {
+	// keeps typing it into the field as before. Only a bare Tab: with Shift,
+	// Control, Option or Command held it reaches the field as it always has,
+	// as the key-stream path also takes only a bare one.
+	NSEventModifierFlags tabModifiers =
+	    NSEventModifierFlagShift | NSEventModifierFlagControl | NSEventModifierFlagOption | NSEventModifierFlagCommand;
+	if (keyCode == 48 && self.tabCallback && ![self hasMarkedText] && (event.modifierFlags & tabModifiers) == 0) {
 		self.tabCallback(self.userData);
 		return;
 	}

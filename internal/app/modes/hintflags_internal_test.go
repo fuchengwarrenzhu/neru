@@ -256,3 +256,35 @@ func TestApplyHintFlags_FreshWritesTheFlagsItWasGiven(t *testing.T) {
 		t.Errorf("FilterRoles = %v, want the flag that was given", ctx.FilterRoles())
 	}
 }
+
+// TestApplyHintFlags_RefreshNeverInheritsSemantic pins the one flag a refresh
+// does not keep. --semantic decides whether the search sends text off the
+// machine, so a plain `hints --search` pressed over a semantic session must
+// open a plain search, while every other flag keeps the refresh rule above.
+func TestApplyHintFlags_RefreshNeverInheritsSemantic(t *testing.T) {
+	tests := []struct {
+		name     string
+		semantic *bool
+		want     bool
+	}{
+		{name: "absent", semantic: nil, want: false},
+		{name: "given", semantic: new(true), want: true},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			ctx := populatedContext()
+			ctx.SetSemantic(true)
+
+			applyHintFlags(ctx, modecmd.Activation{Semantic: testCase.semantic}, true)
+
+			if got := ctx.Semantic(); got != testCase.want {
+				t.Errorf("Semantic() after a refresh = %v, want %v", got, testCase.want)
+			}
+
+			if !ctx.StartWithSearch() || ctx.PendingAction() == nil {
+				t.Error("the refresh reset other flags; only --semantic may be dropped")
+			}
+		})
+	}
+}

@@ -10,6 +10,7 @@ import (
 
 	"github.com/y3owk1n/neru/internal/derrors"
 	"github.com/y3owk1n/neru/internal/domain"
+	"github.com/y3owk1n/neru/internal/domain/element"
 	domainHint "github.com/y3owk1n/neru/internal/domain/hint"
 	"github.com/y3owk1n/neru/internal/domain/semantic"
 )
@@ -37,6 +38,7 @@ const (
 	semanticStatusTimedOut    = "timed out"
 	semanticStatusFailed      = "selection failed"
 	semanticStatusUnavailable = "no target selector"
+	semanticStatusVisionOnly  = "not available for vision hints"
 )
 
 // Why an answer was dropped, for the debug log.
@@ -65,8 +67,11 @@ type semanticAnswer struct {
 	session uint64
 	// source is the hint collection the candidates were built from. Its
 	// identity is what says the hints were not rescanned in between.
-	source     *domainHint.Collection
-	candidates int
+	source *domainHint.Collection
+	// asked are the hints offered as candidates, in candidate order: the
+	// selection's index points here, not into source, which also holds the
+	// hints that were never offered.
+	asked []*domainHint.Interface
 
 	selection semantic.Selection
 	err       error
@@ -82,7 +87,17 @@ func (h *handlerState) submitSemanticSearch() {
 	query := strings.TrimSpace(ctx.SearchQuery())
 	source := ctx.SourceHints()
 
-	if query == "" || source == nil || source.Count() == 0 {
+	if query == "" {
+		// Return on an empty field withdraws what was asked before, so an
+		// answer to text that is gone cannot act.
+		if h.withdrawSemanticRequest() {
+			h.drawHintSearchInput()
+		}
+
+		return
+	}
+
+	if source == nil || source.Count() == 0 {
 		return
 	}
 
@@ -99,16 +114,24 @@ func (h *handlerState) submitSemanticSearch() {
 		return
 	}
 
-	candidates := semanticCandidates(source.All(), ctx.ScannedApp())
+	asked, candidates := semanticCandidates(source.All(), ctx.ScannedApp())
+	if len(candidates) == 0 {
+		h.logger.Debug("Semantic selection skipped: every hint was read off the screen",
+			zap.Int("hints", source.Count()),
+		)
+		h.showSemanticStatus(semanticStatusVisionOnly)
+
+		return
+	}
 
 	requestCtx, cancel := h.semanticRequestContext()
 	h.semanticCancel = cancel
 
 	answer := semanticAnswer{
-		token:      h.semanticRequest,
-		session:    h.hintSearchSession,
-		source:     source,
-		candidates: len(candidates),
+		token:   h.semanticRequest,
+		session: h.hintSearchSession,
+		source:  source,
+		asked:   asked,
 	}
 
 	h.showSemanticStatus(semanticStatusPending)
@@ -151,6 +174,23 @@ func (h *handlerState) cancelSemanticRequest() {
 	}
 }
 
+// withdrawSemanticRequest cancels the request in flight, if there is one, and
+// takes its "…" off the search input. It reports whether there was one; the
+// caller draws the input.
+func (h *handlerState) withdrawSemanticRequest() bool {
+	if h.semanticCancel == nil {
+		return false
+	}
+
+	h.cancelSemanticRequest()
+
+	if h.hints.Context.SearchStatus() == semanticStatusPending {
+		h.hints.Context.SetSearchStatus("")
+	}
+
+	return true
+}
+
 // settleSemanticSelection applies a selection's answer. It runs on the
 // goroutine that asked, with nothing held, and takes the lock itself.
 func (h *Handler) settleSemanticSelection(answer semanticAnswer) {
@@ -165,7 +205,7 @@ func (h *Handler) settleSemanticSelection(answer semanticAnswer) {
 // Caller must hold h.mu.
 func (h *handlerState) applySemanticSelection(answer semanticAnswer) {
 	fields := []zap.Field{
-		zap.Int("candidates", answer.candidates),
+		zap.Int("candidates", len(answer.asked)),
 		zap.Int64("latency_ms", answer.latency.Milliseconds()),
 	}
 
@@ -175,6 +215,8 @@ func (h *handlerState) applySemanticSelection(answer semanticAnswer) {
 			zap.String("outcome", semanticOutcomeStale),
 			zap.String("reason", reason),
 		)...)
+
+		h.releaseDroppedSemanticRequest(answer, reason)
 
 		return
 	}
@@ -247,17 +289,36 @@ func (h *handlerState) staleSemanticReason(answer semanticAnswer) string {
 	return ""
 }
 
+// releaseDroppedSemanticRequest settles a dropped answer that was still the
+// request in flight. A superseded answer has a newer request behind it, and a
+// closed search took its status with it; any other drop — the hints rescanned
+// under it, say — would otherwise leave "…" on screen with nothing coming.
+func (h *handlerState) releaseDroppedSemanticRequest(answer semanticAnswer, reason string) {
+	if reason == staleSuperseded || reason == staleSearchClosed ||
+		answer.token != h.semanticRequest {
+		return
+	}
+
+	h.semanticCancel = nil
+
+	if h.hints == nil || h.hints.Context == nil || !h.hints.Context.SearchActive() {
+		return
+	}
+
+	if h.hints.Context.SearchStatus() == semanticStatusPending {
+		h.showSemanticStatus("")
+	}
+}
+
 // semanticChoice maps the selection back to the hint it was built from, and
 // checks that hint is still one of the hints on screen.
 func (h *handlerState) semanticChoice(answer semanticAnswer) (*domainHint.Interface, bool) {
-	asked := answer.source.All()
-
 	index := answer.selection.Index
-	if index < 0 || index >= len(asked) {
+	if index < 0 || index >= len(answer.asked) {
 		return nil, false
 	}
 
-	chosen := asked[index]
+	chosen := answer.asked[index]
 
 	current := h.hints.Context.SourceHints()
 	if current == nil || !slices.Contains(current.All(), chosen) {
@@ -296,13 +357,14 @@ func (h *handlerState) showSemanticStatus(status string) {
 }
 
 // editSemanticQuery is what typing does in a --semantic search: it redraws
-// the query and filters nothing. A status that described the submitted query
-// goes once the text differs from it; one still waiting stays.
+// the query and filters nothing. Once the text differs from what was
+// submitted, a request still in flight is withdrawn — its answer would act on
+// text the field no longer holds — and a status that described it goes.
 func (h *handlerState) editSemanticQuery() {
 	ctx := h.hints.Context
 
-	status := ctx.SearchStatus()
-	if status != "" && status != semanticStatusPending && ctx.SearchQuery() != h.semanticQuery {
+	if ctx.SearchQuery() != h.semanticQuery {
+		h.withdrawSemanticRequest()
 		ctx.SetSearchStatus("")
 	}
 
@@ -330,29 +392,59 @@ func semanticErrorStatus(err error) string {
 	return status
 }
 
-// semanticCandidates describes each hint's element to the target selector,
-// from what the scan already read. It asks the platform nothing, because it
+// documentParentRoles are the parents whose title names the window or the
+// page rather than a control: a window's title is often a document name or an
+// email subject, and a web area's is the page's title. A candidate keeps such
+// a parent's role and never its title. ParentRole holds the raw AX role.
+var documentParentRoles = map[string]bool{
+	string(element.RoleWindow):      true,
+	string(element.RoleSheet):       true,
+	"AXDrawer":                      true,
+	string(element.RoleApplication): true,
+	"AXWebArea":                     true,
+}
+
+// semanticCandidates describes the hints the target selector may be told
+// about, from what the scan already read, and returns them with the hints
+// they describe, in the same order. It asks the platform nothing, because it
 // runs under h.mu.
 //
-// What it leaves out is the point: the element's value is user content, and
-// the window title and the bounds say more about the user than about the
-// control, so semantic.Candidate has no field for any of them.
-func semanticCandidates(hints []*domainHint.Interface, app string) []semantic.Candidate {
-	candidates := make([]semantic.Candidate, len(hints))
+// It is the one place that decides what leaves the machine, and what it
+// leaves out is the point. semantic.Candidate has no field for an element's
+// value, which is user content, or its bounds. A hint read off the screen by
+// OCR is left out whole, since its title is whatever text was on screen. A
+// parent that is a window or a page keeps its role and loses its title,
+// since that title is the window's or the document's.
+func semanticCandidates(
+	hints []*domainHint.Interface,
+	app string,
+) ([]*domainHint.Interface, []semantic.Candidate) {
+	asked := make([]*domainHint.Interface, 0, len(hints))
+	candidates := make([]semantic.Candidate, 0, len(hints))
 
-	for index, hint := range hints {
-		element := hint.Element()
-		candidates[index] = semantic.Candidate{
-			Role:        string(element.Role()),
-			Subrole:     element.Subrole(),
-			Title:       element.Title(),
-			Description: element.Description(),
-			ParentRole:  element.ParentRole(),
-			ParentTitle: element.ParentTitle(),
-			AppName:     app,
-			HasPopup:    element.HasPopup(),
+	for _, hint := range hints {
+		described := hint.Element()
+		if described.Source() == element.SourceVision {
+			continue
 		}
+
+		parentTitle := described.ParentTitle()
+		if documentParentRoles[described.ParentRole()] {
+			parentTitle = ""
+		}
+
+		asked = append(asked, hint)
+		candidates = append(candidates, semantic.Candidate{
+			Role:        string(described.Role()),
+			Subrole:     described.Subrole(),
+			Title:       described.Title(),
+			Description: described.Description(),
+			ParentRole:  described.ParentRole(),
+			ParentTitle: parentTitle,
+			AppName:     app,
+			HasPopup:    described.HasPopup(),
+		})
 	}
 
-	return candidates
+	return asked, candidates
 }

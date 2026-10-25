@@ -74,7 +74,8 @@ enabled = true
 
 If no single element fits, nothing is clicked and the box says why: `no single
 match`, `no API key`, `timed out` or `selection failed`, with `…` while it waits.
-Edit the text and press `Return` again. `Tab` shows the labels and closes the
+Edit the text and press `Return` again. Editing while it waits withdraws the
+question, so only what the field says when you press `Return` is acted on. `Tab` shows the labels and closes the
 field, and `Escape` leaves hints. The outlines are the
 [boundary highlight](../reference/configuration.md#boundary-highlight), so the
 view is empty without it, and `neru config validate` warns about that.
@@ -87,7 +88,9 @@ binding passes `--semantic`. Only when you press `Return`, it sends to
 subrole, title, description, its parent's role and title, whether it opens a
 menu, and the focused app's bundle identifier, each cut to 200 characters. It
 never sends what is typed into fields, your keystrokes, screenshots, window
-titles or positions, and it logs neither your text nor any element's.
+or page titles or positions, and it logs neither your text nor any element's.
+Hints found by the `vision` strategy are never sent, since their text is read
+off your screen.
 
 The API key is read from `~/.config/credentials/typesafe-ai/apikey` on each
 request. Neru refuses it when other users can read the file or its directory,
