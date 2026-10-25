@@ -1,6 +1,7 @@
 package config_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/y3owk1n/neru/internal/config"
@@ -169,5 +170,55 @@ func TestLabelDirectionForApp(t *testing.T) {
 
 	if got := cfg.Hints.LabelDirectionForApp(bundleExample); got != dirNormal {
 		t.Errorf("LabelDirectionForApp(empty global) = %q, want %q", got, dirNormal)
+	}
+}
+
+// TestValidateHints_SemanticEndpoint pins what a --semantic search may send its
+// question to: an https URL that carries no credential, and an absolute key
+// path. The refusals never quote the value, since a refused URL may hold a key.
+func TestValidateHints_SemanticEndpoint(t *testing.T) {
+	const secret = "s3cret-token"
+
+	tests := []struct {
+		name     string
+		endpoint string
+		keyFile  string
+		wantErr  bool
+	}{
+		{name: "typesafe by default", endpoint: config.DefaultSemanticEndpoint},
+		{
+			name:     "gateway route and key",
+			endpoint: "https://gateway.example.com/typesafe/v1/systemone",
+			keyFile:  "/Users/someone/.config/credentials/gateway/neru.apikey",
+		},
+		{name: "http", endpoint: "http://api.typesafe.ai/v1/systemone", wantErr: true},
+		{name: "no endpoint", endpoint: "", wantErr: true},
+		{name: "no host", endpoint: "https:///v1/systemone", wantErr: true},
+		{name: "user", endpoint: "https://" + secret + "@gateway.example.com/v1", wantErr: true},
+		{name: "query", endpoint: "https://gateway.example.com/v1?key=" + secret, wantErr: true},
+		{name: "fragment", endpoint: "https://gateway.example.com/v1#" + secret, wantErr: true},
+		{
+			name:     "relative key file",
+			endpoint: config.DefaultSemanticEndpoint,
+			keyFile:  "~/.config/credentials/gateway/neru.apikey",
+			wantErr:  true,
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			cfg := config.DefaultConfig()
+			cfg.Hints.Semantic.Endpoint = testCase.endpoint
+			cfg.Hints.Semantic.APIKeyFile = testCase.keyFile
+
+			err := cfg.ValidateHints(nil)
+			if (err != nil) != testCase.wantErr {
+				t.Fatalf("ValidateHints() error = %v, wantErr %v", err, testCase.wantErr)
+			}
+
+			if err != nil && strings.Contains(err.Error(), secret) {
+				t.Fatalf("ValidateHints() error %q quotes the endpoint", err)
+			}
+		})
 	}
 }

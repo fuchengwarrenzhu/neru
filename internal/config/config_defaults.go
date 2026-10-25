@@ -18,6 +18,10 @@ const (
 	DefaultHintPaddingX = -1
 	// DefaultHintPaddingY is the default vertical padding for hints (-1 = auto).
 	DefaultHintPaddingY = -1
+	// DefaultSemanticEndpoint is TypeSafe's System One API, where a --semantic
+	// hint search sends its question unless hints.semantic.endpoint names a
+	// gateway.
+	DefaultSemanticEndpoint = "https://api.typesafe.ai/v1/systemone"
 	// DefaultHintBoundaryBorderRadius is the default radius for hint target boundaries.
 	DefaultHintBoundaryBorderRadius = -1
 	// DefaultHintBoundaryBorderWidth is the default stroke width for hint target boundaries.
@@ -454,6 +458,12 @@ func defaultHints() HintsConfig {
 			BorderRadius:    DefaultHintBoundaryBorderRadius,
 			BorderColor:     Color{},
 			BackgroundColor: Color{},
+		},
+		Semantic: HintsSemanticConfig{
+			Endpoint: DefaultSemanticEndpoint,
+			// Empty reads the jev CLI's key,
+			// ~/.config/credentials/typesafe-ai/apikey.
+			APIKeyFile: "",
 		},
 		Vision: HintsVisionConfig{
 			DetectText:                    true,

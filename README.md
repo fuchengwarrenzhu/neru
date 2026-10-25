@@ -179,4 +179,4 @@ Made with ❤️ by <a href="https://github.com/y3owk1n">y3owk1n</a>
 
 </div>
 
-[^network]: One opt-in feature uses the network: a hint binding with `--semantic` sends your search text and the on-screen controls' names and roles to api.typesafe.ai when you press Return. Nothing is sent without such a binding. See [Privacy](docs/guide/using-neru.md#privacy).
+[^network]: One opt-in feature uses the network: a hint binding with `--semantic` sends your search text and the on-screen controls' names and roles to api.typesafe.ai, or to the gateway `hints.semantic.endpoint` names, when you press Return. Nothing is sent without such a binding. See [Privacy](docs/guide/using-neru.md#privacy).

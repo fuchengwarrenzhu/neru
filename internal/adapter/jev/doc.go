@@ -2,7 +2,8 @@
 // System One choice question per leaf of the semantic tournament, over stdlib
 // net/http.
 //
-// This is the only package in Neru that reaches the network. It sends the
+// This is the only package in Neru that reaches the network: TypeSafe's System
+// One API, or the gateway route hints.semantic.endpoint names. It sends the
 // user's query and each candidate's role, subrole, title, description, parent
 // role and title, popup flag and app name, every string cut to 200 characters,
 // and nothing else: no element value, keystroke, screenshot, window title or

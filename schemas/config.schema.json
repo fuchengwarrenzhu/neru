@@ -743,6 +743,18 @@
           },
           "type": "object"
         },
+        "semantic": {
+          "additionalProperties": false,
+          "properties": {
+            "api_key_file": {
+              "type": "string"
+            },
+            "endpoint": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
         "strategy": {
           "type": "string"
         },

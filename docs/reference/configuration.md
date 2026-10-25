@@ -747,6 +747,21 @@ hides the labels and shows only these outlines, so it needs `enabled = true`.
 | `background_color` | color | derived | Element fill color             |
 | `border_color`     | color | derived | Element stroke color           |
 
+### Semantic search
+
+Where a
+[`--semantic` search](../guide/using-neru.md#describe-the-control-instead-of-typing-its-label)
+sends its question, in `[hints.semantic]`. macOS only. The endpoint takes the
+body TypeSafe's System One API takes, so it is TypeSafe's or a gateway route
+that forwards it, and the key is sent as a bearer token. Both are read at each
+`Return`, so `neru config reload` applies them to the next search.
+[Privacy](../guide/using-neru.md#privacy) lists what the request carries.
+
+| Option         | Type   | Default                                  | Description                                                                                   |
+| -------------- | ------ | ---------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `endpoint`     | string | `"https://api.typesafe.ai/v1/systemone"` | An `https` URL with no user, query or fragment                                                |
+| `api_key_file` | string | `""`                                     | Absolute path of the key for `endpoint`. Empty reads `~/.config/credentials/typesafe-ai/apikey` |
+
 ### Search input UI
 
 `[hints.search_input_ui]` also takes the [hints UI](#hints-ui) options except

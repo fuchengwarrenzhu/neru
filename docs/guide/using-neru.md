@@ -84,7 +84,9 @@ view is empty without it, and `neru config validate` warns about that.
 
 This is the only Neru feature that uses the network, and it is off unless a
 binding passes `--semantic`. Only when you press `Return`, it sends to
-`api.typesafe.ai` the text you typed and, for each outlined element, its role,
+[`hints.semantic.endpoint`](../reference/configuration.md#semantic-search)
+(`api.typesafe.ai` unless you name a gateway) the text you typed and, for each
+outlined element, its role,
 subrole, title, description, its parent's role and title, whether it opens a
 menu, and the focused app's bundle identifier, each cut to 200 characters. It
 never sends what is typed into fields, your keystrokes, screenshots, window
@@ -92,9 +94,11 @@ or page titles or positions, and it logs neither your text nor any element's.
 Hints found by the `vision` strategy are never sent, since their text is read
 off your screen.
 
-The API key is read from `~/.config/credentials/typesafe-ai/apikey` on each
-request. Neru refuses it when other users can read the file or its directory,
-so make the directory `0700` and the file `0600`.
+The API key is read from `hints.semantic.api_key_file`, by default
+`~/.config/credentials/typesafe-ai/apikey`, on each request. Neru refuses it
+when other users can read the file or its directory, so make the directory
+`0700` and the file `0600`. A gateway sees everything the request carries, so
+point the endpoint only at one you trust with it.
 
 ## Recursive grid
 

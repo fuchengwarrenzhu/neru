@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -65,22 +66,33 @@ const (
 	outcomeError = "error"
 )
 
+// Settings name where a selection is sent and the key file that authorizes
+// it. They are read once per selection, so a changed configuration applies
+// from the next submit.
+type Settings struct {
+	// Endpoint is a System One API, TypeSafe's or a gateway's that forwards
+	// the same body. Empty means Endpoint.
+	Endpoint string
+	// KeyFile is the bearer key for Endpoint. Empty means the jev CLI's key
+	// under the home directory.
+	KeyFile string
+}
+
 // Adapter implements ports.TargetSelector against the Jev API.
 type Adapter struct {
 	client   *http.Client
-	endpoint string
-	// keyPath is the API key file; empty means the default, resolved per call.
-	keyPath string
-	logger  *zap.Logger
+	settings func() Settings
+	logger   *zap.Logger
 }
 
-// NewAdapter creates a Jev target selector. A nil logger is replaced with a
-// no-op.
-func NewAdapter(logger *zap.Logger) *Adapter {
-	return newAdapter(Endpoint, "", logger)
-}
+// NewAdapter creates a Jev target selector that reads its settings once per
+// selection. A nil settings func means the defaults, and a nil logger is
+// replaced with a no-op.
+func NewAdapter(logger *zap.Logger, settings func() Settings) *Adapter {
+	if settings == nil {
+		settings = func() Settings { return Settings{} }
+	}
 
-func newAdapter(endpoint, keyPath string, logger *zap.Logger) *Adapter {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
@@ -93,10 +105,15 @@ func newAdapter(endpoint, keyPath string, logger *zap.Logger) *Adapter {
 				return http.ErrUseLastResponse
 			},
 		},
-		endpoint: endpoint,
-		keyPath:  keyPath,
+		settings: settings,
 		logger:   logger.Named("jev"),
 	}
+}
+
+func newAdapter(endpoint, keyPath string, logger *zap.Logger) *Adapter {
+	return NewAdapter(logger, func() Settings {
+		return Settings{Endpoint: endpoint, KeyFile: keyPath}
+	})
 }
 
 // Select implements ports.TargetSelector. An empty query or candidate list
@@ -111,9 +128,15 @@ func (a *Adapter) Select(
 	}
 
 	started := time.Now()
-	chooser := &leafChooser{adapter: a}
 
-	selection, err := a.selectTarget(ctx, chooser, query, candidates)
+	settings := a.settings()
+	if settings.Endpoint == "" {
+		settings.Endpoint = Endpoint
+	}
+
+	chooser := &leafChooser{adapter: a, endpoint: settings.Endpoint}
+
+	selection, err := a.selectTarget(ctx, chooser, settings.KeyFile, query, candidates)
 
 	outcome := outcomeNone
 	if err != nil {
@@ -128,6 +151,7 @@ func (a *Adapter) Select(
 		zap.Int64("latency_ms", time.Since(started).Milliseconds()),
 		zap.String("outcome", outcome),
 		zap.String("model", chooser.returnedModel()),
+		zap.String("endpoint_host", endpointHost(settings.Endpoint)),
 	}
 	if err != nil {
 		fields = append(fields, zap.String("error_code", string(derrors.GetCode(err))))
@@ -141,10 +165,11 @@ func (a *Adapter) Select(
 func (a *Adapter) selectTarget(
 	ctx context.Context,
 	chooser *leafChooser,
+	keyFile string,
 	query string,
 	candidates []semantic.Candidate,
 ) (semantic.Selection, error) {
-	path, err := a.credentialPath()
+	path, err := credentialPath(keyFile)
 	if err != nil {
 		return semantic.Selection{}, err
 	}
@@ -159,11 +184,12 @@ func (a *Adapter) selectTarget(
 	return semantic.Select(ctx, chooser, query, candidates, MaxInFlight)
 }
 
-// leafChooser asks one Select's questions with the key read for it, and keeps
-// the model the service reported for the outcome log.
+// leafChooser asks one Select's questions of one endpoint with the key read
+// for it, and keeps the model the service reported for the outcome log.
 type leafChooser struct {
-	adapter *Adapter
-	key     string
+	adapter  *Adapter
+	endpoint string
+	key      string
 
 	mu    sync.Mutex
 	model string
@@ -185,7 +211,7 @@ func (c *leafChooser) Choose(
 	}
 
 	request, err := http.NewRequestWithContext(
-		ctx, http.MethodPost, c.adapter.endpoint, bytes.NewReader(body),
+		ctx, http.MethodPost, c.endpoint, bytes.NewReader(body),
 	)
 	if err != nil {
 		return "", derrors.Wrap(err, derrors.CodeInternal, "building the jev request failed")
@@ -325,3 +351,14 @@ var (
 	_ ports.TargetSelector = (*Adapter)(nil)
 	_ semantic.Chooser     = (*leafChooser)(nil)
 )
+
+// endpointHost is the host the outcome log names, so a log shows whether a
+// selection went to TypeSafe or a gateway without carrying a path or query.
+func endpointHost(endpoint string) string {
+	parsed, err := url.Parse(endpoint)
+	if err != nil {
+		return ""
+	}
+
+	return parsed.Host
+}
