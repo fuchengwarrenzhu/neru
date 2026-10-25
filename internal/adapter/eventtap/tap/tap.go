@@ -40,3 +40,10 @@ type Tap interface {
 	// PostModifierEvent synthesizes a modifier press or release.
 	PostModifierEvent(modifier string, isDown bool)
 }
+
+// UnboundKeyPasser is the optional backend half of
+// ports.UnboundKeyPassthrough: a tap that can hand unbound bare keys to the
+// focused application. Only the macOS tap implements it.
+type UnboundKeyPasser interface {
+	SetUnboundKeyPassthrough(enabled bool)
+}

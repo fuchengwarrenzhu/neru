@@ -31,9 +31,10 @@ typedef struct {
 	NSArray<NSString *> *__strong modifierBlacklistStrings;  ///< Raw blacklist strings
 	uint64_t modifierBlacklistGeneration;                    ///< Generation counter for layout rebuild
 	BOOL passthroughUnboundedModifiers;                      ///< Whether unbound modifier shortcuts reach macOS
-	os_unfair_lock modifierPassthroughLock;                  ///< Lock for modifier passthrough config
-	CGEventFlags previousFlags;                              ///< Previous modifier flags for toggle detection
-	CGEventFlags modifierChordFlags;  ///< Modifiers used in a key chord and not eligible for sticky on release
+	BOOL passthroughUnboundKeys;             ///< Whether bare keys the blacklist does not name reach macOS too
+	os_unfair_lock modifierPassthroughLock;  ///< Lock for modifier passthrough config
+	CGEventFlags previousFlags;              ///< Previous modifier flags for toggle detection
+	CGEventFlags modifierChordFlags;         ///< Modifiers used in a key chord and not eligible for sticky on release
 	CGEventFlags
 	    nonChordModifierFlags;  ///< Bitmask of non-chord modifiers (Shift/Alt) pressed while chord modifiers were held
 	BOOL stickyModifierDetectionArmed;  ///< Whether sticky modifier callbacks are armed for this mode session
@@ -62,6 +63,19 @@ static inline NSUInteger hotkeyLookupKey(CGKeyCode keyCode, CGEventFlags flags) 
 }
 
 #pragma mark - Helper Functions
+
+/// Whether event is an autorepeat of a key boundLookup names with no modifier.
+/// Holding a bound key and then pressing Shift or Cmd makes its repeats arrive
+/// as a different chord, which the lookup does not name. A mode passing unbound
+/// keys must not hand those to the application (HHHH, or Cmd+H hiding it) while
+/// the key is still steering the mode, so they take the normal dispatch path,
+/// where the mode drops repeats of a key it holds by its base name.
+static BOOL isRepeatOfBoundKey(CGEventRef event, CGKeyCode keyCode, NSDictionary *boundLookup) {
+	if (CGEventGetIntegerValueField(event, kCGKeyboardEventAutorepeat) == 0)
+		return NO;
+
+	return [boundLookup[@(hotkeyLookupKey(keyCode, 0))] boolValue];
+}
 
 // Forward declaration for use in buildKeyLookupFromStrings
 static BOOL parseHotkeyString(NSString *hotkeyString, CGKeyCode *outKeyCode, uint8_t *outModifiers);
@@ -497,10 +511,12 @@ CGEventRef eventTapCallback(CGEventTapProxy proxy, CGEventType type, CGEventRef 
 
 				// Snapshot modifier passthrough config under lock
 				BOOL passthroughEnabled = NO;
+				BOOL passUnboundKeys = NO;
 				NSDictionary *blacklistLookup = nil;
 				EventTapPassthroughCallback ptCallback = NULL;
 				os_unfair_lock_lock(&context->modifierPassthroughLock);
 				passthroughEnabled = context->passthroughUnboundedModifiers;
+				passUnboundKeys = context->passthroughUnboundKeys;
 				blacklistLookup = context->modifierBlacklistLookup;
 				ptCallback = context->passthroughCallback;
 				os_unfair_lock_unlock(&context->modifierPassthroughLock);
@@ -513,12 +529,19 @@ CGEventRef eventTapCallback(CGEventTapProxy proxy, CGEventType type, CGEventRef 
 				BOOL isIntercepted = interceptedLookup != nil && [interceptedLookup[@(lookupKey)] boolValue];
 				BOOL isBlacklisted = blacklistLookup != nil && [blacklistLookup[@(lookupKey)] boolValue];
 
-				if (passthroughEnabled && !isIntercepted && !isBlacklisted) {
+				BOOL heldBoundRepeat = passUnboundKeys && isRepeatOfBoundKey(event, keyCode, blacklistLookup);
+
+				if (passthroughEnabled && !isIntercepted && !isBlacklisted && !heldBoundRepeat) {
 					// Notify Go that a modifier shortcut was passed through so
 					// the active mode can decide whether to refresh (e.g., hints
 					// mode re-collects AX elements after Cmd+Tab).
 					if (ptCallback) {
 						ptCallback(context->userData);
+					}
+					// A mode passing unbound keys is told that one went past it, on the
+					// same dispatcher as the keys it sees (see the bare path below).
+					if (passUnboundKeys && context->callback) {
+						context->callback("__passthrough", context->userData);
 					}
 					return event;
 				}
@@ -545,6 +568,31 @@ CGEventRef eventTapCallback(CGEventTapProxy proxy, CGEventType type, CGEventRef 
 						context->callback([fullKey UTF8String], context->userData);
 					}
 					return NULL;
+				}
+			}
+
+			// A mode passing unbound keys hands every bare key its blacklist does not
+			// name to the focused application untouched. The blacklist is the
+			// mode's bound keys, the global chords it falls back to and the first
+			// key of each sequence, pushed with the passthrough setting, so the
+			// keys consumed here and the keys the mode answers are one set. The
+			// pass is reported as "__passthrough", with no key identity, through
+			// the callback that delivers keys, so it reaches the mode in order and
+			// ends a sequence the mode was waiting to complete.
+			if (!hasCmd && !hasAlt && !hasCtrl) {
+				BOOL passUnboundKeys = NO;
+				NSDictionary *boundLookup = nil;
+				os_unfair_lock_lock(&context->modifierPassthroughLock);
+				passUnboundKeys = context->passthroughUnboundKeys;
+				boundLookup = context->modifierBlacklistLookup;
+				os_unfair_lock_unlock(&context->modifierPassthroughLock);
+
+				if (passUnboundKeys && ![boundLookup[@(lookupKey)] boolValue] &&
+				    !isRepeatOfBoundKey(event, keyCode, boundLookup)) {
+					if (context->callback) {
+						context->callback("__passthrough", context->userData);
+					}
+					return event;
 				}
 			}
 
@@ -852,6 +900,7 @@ EventTap NeruCreateEventTap(EventTapCallback callback, void *userData) {
 	context->modifierBlacklistStrings = nil;
 	context->modifierPassthroughLock = OS_UNFAIR_LOCK_INIT;
 	context->passthroughUnboundedModifiers = NO;
+	context->passthroughUnboundKeys = NO;
 	context->previousFlags = 0;
 	context->modifierChordFlags = 0;
 	context->stickyModifierDetectionArmed = NO;
@@ -1036,6 +1085,20 @@ void NeruSetEventTapInterceptedModifierKeys(EventTap tap, const char **keys, int
 		oldLookup = nil;
 		oldStrings = nil;
 	}
+}
+
+/// Let bare keys the passthrough blacklist does not name reach macOS.
+/// @param tap Event tap handle
+/// @param enabled Non-zero to pass unbound bare keys, zero to consume them
+void NeruSetEventTapUnboundKeyPassthrough(EventTap tap, int enabled) {
+	if (!tap)
+		return;
+
+	EventTapContext *context = (EventTapContext *)tap;
+
+	os_unfair_lock_lock(&context->modifierPassthroughLock);
+	context->passthroughUnboundKeys = enabled != 0;
+	os_unfair_lock_unlock(&context->modifierPassthroughLock);
 }
 
 /// Set callback invoked when a modifier shortcut passes through to macOS.
@@ -1261,6 +1324,7 @@ void NeruDestroyEventTap(EventTap tap) {
 		context->modifierBlacklistLookup = nil;
 		context->modifierBlacklistStrings = nil;
 		context->passthroughUnboundedModifiers = NO;
+		context->passthroughUnboundKeys = NO;
 		context->passthroughCallback = NULL;
 		os_unfair_lock_unlock(&context->modifierPassthroughLock);
 		oldBlacklistLookup = nil;

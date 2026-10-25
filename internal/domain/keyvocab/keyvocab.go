@@ -10,6 +10,12 @@ const (
 	// ModifierTogglePrefix marks a synthetic modifier transition event
 	// ("__modifier_<name>_<down|up>"), used for sticky-modifier tracking.
 	ModifierTogglePrefix = "__modifier_"
+
+	// PassthroughEvent marks a key the tap handed to the focused application
+	// instead of the mode. It carries no key identity on purpose: the mode only
+	// needs to know that a key went past it, in order with the keys it did see,
+	// so a sequence it was waiting to complete ends there.
+	PassthroughEvent = "__passthrough"
 )
 
 // Canonical modifier names as they appear in configs, key strings and

@@ -365,6 +365,14 @@ func defaultPrimaryModifier() PrimaryModifierConfig {
 	}
 }
 
+// The values [modes.<name>] unbound_keys accepts. The empty string is
+// UnboundKeysConsume, so a declaration that leaves it out swallows unbound
+// keys as every declared mode always has.
+const (
+	UnboundKeysConsume = "consume"
+	UnboundKeysPass    = "pass"
+)
+
 // DefaultCustomModeHotkeys is the table a declared mode's [modes.<name>.hotkeys]
 // merges over: Escape returns to idle, as it does in every built-in mode. A
 // mode declared with no table at all still gets it, so no declaration can be

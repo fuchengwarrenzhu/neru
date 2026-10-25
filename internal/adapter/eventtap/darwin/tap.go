@@ -270,6 +270,28 @@ func (et *EventTap) SetPassthroughCallback(callback tap.PassthroughCallback) {
 	}
 }
 
+var _ tap.UnboundKeyPasser = (*EventTap)(nil)
+
+// SetUnboundKeyPassthrough lets bare keys the passthrough blacklist does not
+// name reach the focused application (tap.UnboundKeyPasser). Each one the tap
+// passes is reported in order with the keys it dispatches, as
+// keyvocab.PassthroughEvent.
+func (et *EventTap) SetUnboundKeyPassthrough(enabled bool) {
+	if et.handle == nil {
+		et.logger.Warn("Cannot set unbound key passthrough on nil event tap")
+
+		return
+	}
+
+	cEnabled := C.int(0)
+	if enabled {
+		cEnabled = C.int(1)
+	}
+
+	C.NeruSetEventTapUnboundKeyPassthrough(et.handle, cEnabled)
+	et.logger.Debug("Event tap unbound key passthrough set", zap.Bool("enabled", enabled))
+}
+
 // SetStickyModifierToggle enables or disables sticky modifier toggle detection.
 // When enabled, modifier key events (Shift, Cmd, Alt, Ctrl) are detected and
 // callback is invoked with "__modifier_<name>_down/up" strings.

@@ -271,15 +271,40 @@ indicator = "Window"
 - **Leaving.** `Escape` is bound to `idle` by default (`"Escape" = "__disabled__"`
   removes it). Any binding ending in `idle` or another mode also leaves. Unbound
   Ctrl/Alt/Cmd chords fall back to `[hotkeys]`, see
-  [Which binding wins](../concepts/bindings.md#which-binding-wins), and
-  unbound bare keys are swallowed.
+  [Which binding wins](../concepts/bindings.md#which-binding-wins).
+- **Unbound keys.** By default a key the mode does not bind is swallowed. With
+  `unbound_keys = "pass"` it goes to the focused application unchanged and the
+  mode stays open, so the mode works as a layer over normal typing: `Space`,
+  `Delete`, letters and editing shortcuts reach the app, and only the keys the
+  mode binds are taken. macOS only.
+  - What the mode keeps is what it answers: its table with any
+    [per-app overrides](#declared-mode-per-app-config), the `[hotkeys]` chords
+    it falls back to, and the shortcuts in
+    [`passthrough_unbounded_keys_blacklist`](#general).
+  - Both letters of every two-key sequence are kept, so with `"gt"` bound, `g`
+    and `t` are reserved in the mode and never typed through, even where `t`
+    alone is bound to nothing.
+  - Unbound Ctrl/Alt/Cmd chords pass regardless of
+    [`passthrough_unbounded_keys`](#general), and
+    `should_exit_after_passthrough` does not close the mode.
+  - Sticky modifiers are off in the mode: a lone modifier tap goes to the app
+    instead of toggling.
+  - A passed key ends a sequence the mode was waiting to complete: `g`, a
+    passed `x`, then `g` is not `gg`.
+  - Keys are matched by key code, so the numeric keypad's digits and Enter, and
+    Forward Delete, reach the app even when the main key with the same name is
+    bound.
+  - A key event another program injects, such as dictation typed in as
+    keystrokes, is treated like typing: a bound letter in it still runs its
+    binding.
 
 ### Declared mode options
 
-| Option      | Type   | Default                 | Description                                                                    |
-| ----------- | ------ | ----------------------- | ------------------------------------------------------------------------------ |
-| `indicator` | string | `""`                    | [Mode indicator](#mode_indicator) text while the mode is open, empty hides it  |
-| `hotkeys`   | map    | `{ "Escape" = "idle" }` | The mode's [hotkeys](#per-mode-hotkeys), merged over the default               |
+| Option         | Type   | Default                 | Description                                                                                       |
+| -------------- | ------ | ----------------------- | ------------------------------------------------------------------------------------------------- |
+| `indicator`    | string | `""`                    | [Mode indicator](#mode_indicator) text while the mode is open, empty hides it                     |
+| `unbound_keys` | string | `"consume"`             | `"consume"` swallows keys the mode does not bind, `"pass"` hands them to the app and stays open    |
+| `hotkeys`      | map    | `{ "Escape" = "idle" }` | The mode's [hotkeys](#per-mode-hotkeys), merged over the default                                  |
 
 The name is the table key: letters, digits, `_` and `-`, starting with a
 letter. Neru refuses the built-in mode names (`hints`, `grid`,

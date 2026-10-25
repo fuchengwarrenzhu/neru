@@ -44,6 +44,19 @@ func (c *Config) ValidateCustomModes() error {
 			)
 		}
 
+		switch c.Modes[name].UnboundKeys {
+		case "", UnboundKeysConsume, UnboundKeysPass:
+		default:
+			return derrors.Newf(
+				derrors.CodeInvalidConfig,
+				"%s.unbound_keys must be %q or %q, got %q",
+				customModeField(name),
+				UnboundKeysConsume,
+				UnboundKeysPass,
+				c.Modes[name].UnboundKeys,
+			)
+		}
+
 		err := validateAppConfigsWithCallback(
 			customModeField(name),
 			c.Modes[name].AppConfigs,

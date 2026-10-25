@@ -158,6 +158,51 @@ func TestValidateCustomModes_RefusesWhatCouldNeverBeEntered(t *testing.T) {
 	}
 }
 
+// TestValidateCustomModes_UnboundKeys pins the values unbound_keys takes:
+// leaving it out and "consume" keep a declared mode swallowing unbound keys,
+// "pass" hands them on, and anything else is refused rather than read as one
+// of the two.
+func TestValidateCustomModes_UnboundKeys(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		value    string
+		wantErr  bool
+		wantPass bool
+	}{
+		{value: ""},
+		{value: config.UnboundKeysConsume},
+		{value: config.UnboundKeysPass, wantPass: true},
+		{value: "Pass", wantErr: true},
+		{value: "passthrough", wantErr: true},
+	}
+
+	for _, scenario := range tests {
+		t.Run("unbound_keys="+scenario.value, func(t *testing.T) {
+			t.Parallel()
+
+			mode := declaredMode(nil)
+			mode.UnboundKeys = scenario.value
+
+			cfg := config.DefaultConfig()
+			cfg.Modes = map[string]config.CustomModeConfig{declaredModeName: mode}
+
+			err := cfg.ValidateCustomModes()
+			if (err != nil) != scenario.wantErr {
+				t.Fatalf("ValidateCustomModes() error = %v, want error %v", err, scenario.wantErr)
+			}
+
+			if !scenario.wantErr && mode.PassesUnboundKeys() != scenario.wantPass {
+				t.Errorf(
+					"PassesUnboundKeys() = %v, want %v",
+					mode.PassesUnboundKeys(),
+					scenario.wantPass,
+				)
+			}
+		})
+	}
+}
+
 // TestConfig_HotkeysForModeAndApp_ReadsADeclaredMode pins the lookup a
 // keystroke settles against: the declared table by name, and the per-app
 // override merged over it, under the same rules the built-in modes follow.

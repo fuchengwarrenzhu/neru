@@ -28,6 +28,13 @@ const passthroughHintRefreshDelay = 300 * time.Millisecond
 // invalidate. Every caller passes the mode that is active, which is what makes
 // the settled keymap the right one to read.
 //
+// A declared mode with unbound_keys = "pass" also has the tap pass the bare
+// keys the blacklist does not name. That switch is pushed on the safe side of
+// every list: off before any list lands, pass mode to pass mode included, and
+// on only after the new one, so a key arriving between the two pushes is
+// consumed and handed to the mode coming up rather than passed on a list that
+// does not describe it.
+//
 // Caller must hold h.mu.
 func (h *handlerState) syncModifierPassthrough(mode domain.Mode) {
 	if !h.hasEventTap() {
@@ -35,6 +42,9 @@ func (h *handlerState) syncModifierPassthrough(mode domain.Mode) {
 	}
 
 	enabled := h.passthroughEnabledFor(mode)
+	passUnbound := enabled && h.passesUnboundKeys(mode)
+
+	h.setUnboundKeyPassthrough(false)
 
 	h.setPassthroughCallback(h.passthroughCallbackFor(mode, enabled))
 
@@ -53,13 +63,23 @@ func (h *handlerState) syncModifierPassthrough(mode domain.Mode) {
 		// consumes them instead of passing them through. So must the global
 		// chords the mode falls back to, and for the same reason: passed through,
 		// the tap would hand the user's own hotkey to the application in front of
-		// them and the fallback would never see the key at all.
-		for _, key := range append(keymap.Keys(), globalHotkeys.Keys()...) {
+		// them and the fallback would never see the key at all. So must both
+		// letters of each two-key sequence, which a mode passing unbound bare
+		// keys would otherwise hand away before the sequence could start or
+		// complete — so in such a mode those letters are reserved, not typed.
+		keys := append(keymap.Keys(), globalHotkeys.Keys()...)
+		keys = append(keys, keymap.SequenceKeys()...)
+
+		for _, key := range keys {
 			blacklist = append(blacklist, configpkg.CanonicalHotkeyForPlatform(key))
 		}
 	}
 
 	h.setModifierPassthrough(enabled, blacklist)
+
+	if passUnbound {
+		h.setUnboundKeyPassthrough(true)
+	}
 
 	h.setInterceptedModifierKeys(modeModifierKeys(keymap, globalHotkeys))
 }
@@ -73,7 +93,21 @@ func (h *handlerState) syncModifierPassthrough(mode domain.Mode) {
 func (h *handlerState) passthroughEnabledFor(mode domain.Mode) bool {
 	return h.config != nil &&
 		mode != domain.ModeIdle &&
-		h.config.General.PassthroughUnboundedKeys
+		(h.config.General.PassthroughUnboundedKeys || h.passesUnboundKeys(mode))
+}
+
+// passesUnboundKeys reports whether mode is a declared mode written with
+// unbound_keys = "pass": every key it does not bind, bare keys and chords
+// alike, goes to the focused application and the mode stays open, whatever
+// [general] says about chords.
+//
+// Caller must hold h.mu.
+func (h *handlerState) passesUnboundKeys(mode domain.Mode) bool {
+	if mode != domain.ModeCustom || h.config == nil {
+		return false
+	}
+
+	return h.config.Modes[h.appState.CustomModeName()].PassesUnboundKeys()
 }
 
 // RefreshPassthroughForFocusedAppChange re-synchronizes the event tap with the
@@ -207,7 +241,10 @@ func (h *handlerState) passthroughTick(mode domain.Mode, session uint64) {
 
 	h.cancelPendingModifierToggle()
 
-	if h.config != nil && h.config.General.ShouldExitAfterPassthrough {
+	// A mode that passes unbound keys stays open by definition; the exit is
+	// for modes that only let the odd chord through.
+	if h.config != nil && h.config.General.ShouldExitAfterPassthrough &&
+		!h.passesUnboundKeys(mode) {
 		h.logger.Debug("Exiting mode after passthrough",
 			zap.String("mode", domain.ModeString(mode)),
 			zap.Uint64("session", session))
