@@ -88,6 +88,12 @@ func TestDiagnose_WarnsAboutACommandThatStillRuns(t *testing.T) {
 			want: []string{"--hide-on-empty-search requires --search"},
 		},
 		{
+			name: "semantic without search",
+			mode: domain.ModeHints,
+			args: []string{flagSemantic},
+			want: []string{"--semantic requires --search"},
+		},
+		{
 			// Every fault is reported, not just the first: a user fixing their
 			// configuration should see the whole of what is wrong with a
 			// binding rather than one fault per edit.

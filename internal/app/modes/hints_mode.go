@@ -7,7 +7,6 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/y3owk1n/neru/internal/domain/modecmd"
-	"github.com/y3owk1n/neru/internal/ports"
 )
 
 // Compile-time interface compliance checks: the core interface, then every
@@ -77,10 +76,7 @@ func (m *HintsMode) RefreshForThemeChange() bool {
 	}
 
 	handler.redrawFrame(
-		ports.HintsFrame{
-			Screen: handler.screenBounds,
-			Hints:  hintCollection.All(),
-		},
+		handler.hintsFrame(hintCollection.All()),
 		"refresh hints after theme change",
 	)
 

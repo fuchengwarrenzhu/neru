@@ -83,8 +83,11 @@ type App struct {
 	eventTap      ports.EventTapPort
 	textInput     ports.TextInputPort
 	keyFeed       ports.KeyFeedPort
-	ipcServer     ports.IPCPort
-	appWatcher    Watcher
+	// targetSelector picks the hint a --semantic search describes. It is the
+	// only port that reaches the network, and only on that search's Return.
+	targetSelector ports.TargetSelector
+	ipcServer      ports.IPCPort
+	appWatcher     Watcher
 
 	modes *modes.Handler
 

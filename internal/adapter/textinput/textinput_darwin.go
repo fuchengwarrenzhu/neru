@@ -10,6 +10,7 @@ package textinput
 extern void textInputQueryBridge(char* query, void* userData);
 extern void textInputConfirmBridge(void* userData);
 extern void textInputCancelBridge(void* userData);
+extern void textInputTabBridge(void* userData);
 */
 import "C"
 
@@ -67,10 +68,18 @@ func (t *TextInput) StartHintSearchSession(
 	t.callbacks = callbacks
 	t.mu.Unlock()
 
+	// The field takes Tab only for a session that handles it; without one it
+	// keeps typing the tab, as it always has.
+	var tabCallback C.TextInputControlCallback
+	if callbacks.OnTab != nil {
+		tabCallback = C.TextInputControlCallback(C.textInputTabBridge)
+	}
+
 	started := C.NeruStartHintSearchTextInput(
 		C.TextInputQueryCallback(C.textInputQueryBridge),
 		C.TextInputControlCallback(C.textInputConfirmBridge),
 		C.TextInputControlCallback(C.textInputCancelBridge),
+		tabCallback,
 		C.int(frame.X),
 		C.int(frame.Y),
 		C.int(frame.Width),
@@ -178,6 +187,34 @@ func textInputCancelBridge(_ unsafe.Pointer) {
 		return
 	}
 
+	go func() {
+		textInput.callbackMu.Lock()
+		defer textInput.callbackMu.Unlock()
+
+		callback()
+	}()
+}
+
+//export textInputTabBridge
+func textInputTabBridge(_ unsafe.Pointer) {
+	globalTextInputMu.RLock()
+	textInput := globalTextInput
+	globalTextInputMu.RUnlock()
+
+	if textInput == nil {
+		return
+	}
+
+	textInput.mu.RLock()
+	callback := textInput.callbacks.OnTab
+	textInput.mu.RUnlock()
+
+	if callback == nil {
+		return
+	}
+
+	// The field calls this on the main thread, and the callback takes the
+	// mode handler's lock, so it runs on a goroutine like the other three.
 	go func() {
 		textInput.callbackMu.Lock()
 		defer textInput.callbackMu.Unlock()

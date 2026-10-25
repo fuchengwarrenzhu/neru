@@ -7,6 +7,7 @@ import (
 
 	eventtapadapter "github.com/y3owk1n/neru/internal/adapter/eventtap"
 	ipcadapter "github.com/y3owk1n/neru/internal/adapter/ipc"
+	"github.com/y3owk1n/neru/internal/adapter/jev"
 	"github.com/y3owk1n/neru/internal/adapter/keyfeed"
 	"github.com/y3owk1n/neru/internal/adapter/platform"
 	infrasystray "github.com/y3owk1n/neru/internal/adapter/systray"
@@ -74,6 +75,12 @@ func initializeInfrastructure(app *App) error {
 
 	if app.keyFeed == nil {
 		app.keyFeed = keyfeed.NewAdapter(logger)
+	}
+
+	// Building the selector reads nothing and sends nothing: it reaches the
+	// network only when a --semantic search is submitted.
+	if app.targetSelector == nil {
+		app.targetSelector = jev.NewAdapter(logger)
 	}
 
 	// Install the platform font resolver. SetFontResolver makes the
@@ -363,6 +370,8 @@ func initializeModeHandler(app *App) {
 		Shutdown:               app.Quit,
 		TextInput:              app.textInput,
 		System:                 app.systemPort,
+		TargetSelector:         app.targetSelector,
+		TargetSelectionBudget:  jev.DefaultBudget,
 		Motion:                 app.motion.Group("modes"),
 		Events:                 app.events,
 	})

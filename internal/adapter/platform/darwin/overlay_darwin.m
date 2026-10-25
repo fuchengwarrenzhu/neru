@@ -55,6 +55,7 @@
 
 @interface SearchInputItem : NSObject
 @property(nonatomic, copy) NSString *query;
+@property(nonatomic, copy) NSString *status;  ///< Drawn in place of the count when non-empty
 @property(nonatomic, assign) NSInteger resultCount;
 @property(nonatomic, assign) CGPoint position;
 @property(nonatomic, assign) CGFloat width;
@@ -251,6 +252,7 @@ typedef NS_ENUM(NSInteger, NeruItemKind) {
 @property(nonatomic, assign) CGFloat hintPaddingX;                  ///< Hint horizontal padding
 @property(nonatomic, assign) CGFloat hintPaddingY;                  ///< Hint vertical padding
 @property(nonatomic, assign) BOOL hintBoundaryHighlightEnabled;     ///< Draw target boundary highlight
+@property(nonatomic, assign) BOOL hintLabelsHidden;                 ///< Draw boundaries only, no labels
 @property(nonatomic, assign) CGFloat hintBoundaryBorderWidth;       ///< Target boundary stroke width
 @property(nonatomic, assign) CGFloat hintBoundaryBorderRadius;      ///< Target boundary corner radius
 @property(nonatomic, strong) SearchInputItem *searchInput;          ///< Active hints search input
@@ -816,6 +818,7 @@ typedef NS_ENUM(NSInteger, NeruItemKind) {
 	self.hintPaddingX = style.paddingX;
 	self.hintPaddingY = style.paddingY;
 	self.hintBoundaryHighlightEnabled = style.boundaryHighlightEnabled ? YES : NO;
+	self.hintLabelsHidden = style.labelsHidden ? YES : NO;
 	self.hintBoundaryBorderWidth = style.boundaryBorderWidth >= 0 ? style.boundaryBorderWidth : 1.0;
 	self.hintBoundaryBorderRadius = style.boundaryBorderRadius >= 0 ? style.boundaryBorderRadius : 4.0;
 }
@@ -1252,6 +1255,15 @@ static id NeruOrNull(id object) { return object ?: [NSNull null]; }
 			continue;
 		}
 
+		// A search that picks targets by description shows where they are and
+		// not what they are called. The badge is laid out again when the labels
+		// come back, since its item has changed by then.
+		if (self.hintLabelsHidden) {
+			layer.hidden = YES;
+			[self placeBoundaryLayer:layer.boundary forHint:hint];
+			continue;
+		}
+
 		BOOL changed = layer.item != hint || layer.matchedPrefixLength != hint.matchedPrefixLength ||
 		               layer.styleGeneration != generation;
 		if (changed) {
@@ -1406,7 +1418,9 @@ static id NeruOrNull(id object) { return object ?: [NSNull null]; }
 	NSMutableAttributedString *attrString = self.cachedSearchInputAttributedString;
 	NSString *query = input.query ?: @"";
 	NSString *display = [query length] > 0 ? [NSString stringWithFormat:@"/ %@", query] : @"/ Search hints";
-	if ([query length] > 0) {
+	if ([input.status length] > 0) {
+		display = [display stringByAppendingFormat:@"  %@", input.status];
+	} else if ([query length] > 0) {
 		display = [display stringByAppendingFormat:@"  %ld", (long)input.resultCount];
 	}
 	[[attrString mutableString] setString:display];
@@ -2911,6 +2925,7 @@ void NeruDrawHints(OverlayWindow window, HintData *hints, int count, HintStyle s
 			    .boundaryHighlightEnabled = style.boundaryHighlightEnabled,
 			    .boundaryBorderWidth = style.boundaryBorderWidth,
 			    .boundaryBorderRadius = style.boundaryBorderRadius,
+			    .labelsHidden = style.labelsHidden,
 			    .fontFamily = safe_strdup(style.fontFamily),
 			    .backgroundColor = safe_strdup(style.backgroundColor),
 			    .textColor = safe_strdup(style.textColor),
@@ -2937,6 +2952,7 @@ void NeruDrawHints(OverlayWindow window, HintData *hints, int count, HintStyle s
 static SearchInputItem *buildSearchInputItem(SearchInputData input) {
 	SearchInputItem *item = [[SearchInputItem alloc] init];
 	item.query = input.query ? @(input.query) : @"";
+	item.status = input.status ? @(input.status) : @"";
 	item.resultCount = input.resultCount;
 	item.position = input.position;
 	item.width = input.width;
@@ -3104,6 +3120,7 @@ void NeruDrawIncrementHints(
 		int boundaryHighlightEnabled = style.boundaryHighlightEnabled;
 		int boundaryBorderWidth = style.boundaryBorderWidth;
 		int boundaryBorderRadius = style.boundaryBorderRadius;
+		int labelsHidden = style.labelsHidden;
 
 		dispatch_async(dispatch_get_main_queue(), ^{
 			@autoreleasepool {
@@ -3159,6 +3176,7 @@ void NeruDrawIncrementHints(
 				controller.overlayView.hintPaddingX = paddingX;
 				controller.overlayView.hintPaddingY = paddingY;
 				controller.overlayView.hintBoundaryHighlightEnabled = boundaryHighlightEnabled ? YES : NO;
+				controller.overlayView.hintLabelsHidden = labelsHidden ? YES : NO;
 				controller.overlayView.hintBoundaryBorderWidth = boundaryBorderWidth >= 0 ? boundaryBorderWidth : 1.0;
 				controller.overlayView.hintBoundaryBorderRadius =
 				    boundaryBorderRadius >= 0 ? boundaryBorderRadius : 4.0;

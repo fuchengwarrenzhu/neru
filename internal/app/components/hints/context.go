@@ -226,6 +226,13 @@ type Context struct {
 	confirmOnLabel       bool
 	searchConfirmOnLabel bool
 	exitOnUnmatched      bool
+
+	// semantic, labelsHidden, searchStatus and scannedApp belong to a search
+	// that picks its target by description (--semantic).
+	semantic     bool
+	labelsHidden bool
+	searchStatus string
+	scannedApp   string
 }
 
 // SetManager sets the domain hint manager.
@@ -370,6 +377,53 @@ func (c *Context) ExitOnUnmatched() bool {
 	return c.exitOnUnmatched
 }
 
+// SetSemantic sets whether the session's search picks its target by what the
+// query describes rather than by matching it as text.
+func (c *Context) SetSemantic(semantic bool) {
+	c.semantic = semantic
+}
+
+// Semantic reports whether the session's search picks its target by what the
+// query describes.
+func (c *Context) Semantic() bool {
+	return c.semantic
+}
+
+// SetLabelsHidden sets whether hints are drawn as target boundaries without
+// their labels.
+func (c *Context) SetLabelsHidden(hidden bool) {
+	c.labelsHidden = hidden
+}
+
+// LabelsHidden reports whether hints are drawn as target boundaries without
+// their labels.
+func (c *Context) LabelsHidden() bool {
+	return c.labelsHidden
+}
+
+// SetSearchStatus sets the short status the search input shows in place of
+// its result count; empty shows the count.
+func (c *Context) SetSearchStatus(status string) {
+	c.searchStatus = status
+}
+
+// SearchStatus returns the status the search input shows, empty for none.
+func (c *Context) SearchStatus() string {
+	return c.searchStatus
+}
+
+// SetScannedApp records the application the session's hints were found in,
+// as its bundle identifier.
+func (c *Context) SetScannedApp(bundleID string) {
+	c.scannedApp = bundleID
+}
+
+// ScannedApp returns the application the session's hints were found in, empty
+// when it could not be read.
+func (c *Context) ScannedApp() string {
+	return c.scannedApp
+}
+
 // Reset resets the hints context to its initial state.
 func (c *Context) Reset() error {
 	var err error
@@ -385,6 +439,10 @@ func (c *Context) Reset() error {
 	c.confirmOnLabel = false
 	c.searchConfirmOnLabel = false
 	c.exitOnUnmatched = false
+	c.semantic = false
+	c.labelsHidden = false
+	c.searchStatus = ""
+	c.scannedApp = ""
 	c.baseContext.Reset()
 
 	return err

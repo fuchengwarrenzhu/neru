@@ -734,7 +734,10 @@ hints.clickable_roles: unknown role "AXButton": use "button"
 
 ### Boundary highlight
 
-Element outlines for dense layouts, in `[hints.boundary_highlight]`.
+Element outlines for dense layouts, in `[hints.boundary_highlight]`. A
+[`--semantic` search](../guide/using-neru.md#describe-the-control-instead-of-typing-its-label)
+hides the labels and shows only these outlines, so it needs `enabled = true`.
+`neru config validate` warns about a `--semantic` binding without it.
 
 | Option             | Type  | Default | Description                    |
 | ------------------ | ----- | ------- | ------------------------------ |

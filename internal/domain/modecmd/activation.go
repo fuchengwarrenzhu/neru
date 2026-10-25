@@ -51,6 +51,10 @@ type Activation struct {
 	// HideOnEmptySearch hides every hint while the search query is empty.
 	HideOnEmptySearch *bool
 
+	// Semantic makes the search pick its target by asking a target selector
+	// what the query describes, instead of matching the query as text.
+	Semantic *bool
+
 	// ConfirmOnLabel confirms a search once a label typed after it leaves one
 	// match.
 	ConfirmOnLabel *bool

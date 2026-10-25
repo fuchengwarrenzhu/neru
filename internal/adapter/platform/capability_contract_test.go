@@ -275,6 +275,8 @@ func TestCapabilities_ProbeCoverageIsDocumented(t *testing.T) {
 		ports.CapabilityVision:            "a probe would trigger a screen-capture permission prompt",
 		ports.CapabilityKeyFeed:           "injects real keystrokes into the focused app",
 		ports.CapabilitySystray:           "needs a live run loop and adds a tray icon",
+		ports.CapabilityTargetSelection: "not a SystemPort subsystem, and its only entry point " +
+			"sends a request to api.typesafe.ai; covered by internal/adapter/jev against httptest",
 	}
 
 	covered := make(map[ports.CapabilityKey]bool)

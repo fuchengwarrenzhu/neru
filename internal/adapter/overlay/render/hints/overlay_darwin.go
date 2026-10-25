@@ -244,9 +244,11 @@ func (o *Overlay) DrawHintsWithStyle(hints []*Hint, style StyleMode) error {
 	return o.drawHintsInternal(hints, style, true)
 }
 
-// DrawSearchInput draws the active hints search input.
+// DrawSearchInput draws the active hints search input. A non-empty status is
+// drawn in place of the result count.
 func (o *Overlay) DrawSearchInput(
 	query string,
+	status string,
 	resultCount int,
 	frame SearchInputFrame,
 	style SearchInputStyle,
@@ -254,6 +256,10 @@ func (o *Overlay) DrawSearchInput(
 	cQuery := C.CString(query)
 
 	defer C.free(unsafe.Pointer(cQuery))
+
+	cStatus := C.CString(status)
+
+	defer C.free(unsafe.Pointer(cStatus))
 
 	cFontFamily := C.CString(style.FontFamily())
 	cBackgroundColor := C.CString(style.BackgroundColor())
@@ -270,6 +276,7 @@ func (o *Overlay) DrawSearchInput(
 
 	input := C.SearchInputData{
 		query:       cQuery,
+		status:      cStatus,
 		resultCount: C.int(resultCount),
 		position: C.CGPoint{
 			x: C.double(frame.Position().X),
@@ -523,6 +530,7 @@ func (o *Overlay) drawHintsInternal(hints []*Hint, style StyleMode, showArrow bo
 		boundaryBorderRadius:     C.int(style.BoundaryBorderRadius()),
 		boundaryBackgroundColor:  (*C.char)(cachedStyle.BoundaryBgColor),
 		boundaryBorderColor:      (*C.char)(cachedStyle.BoundaryBorderColor),
+		labelsHidden:             C.int(boolToInt(style.LabelsHidden())),
 	}
 
 	C.NeruDrawHints(o.window, &cHints[0], C.int(len(cHints)), finalStyle)
@@ -781,6 +789,7 @@ func (o *Overlay) drawHintsIncrementalStructural(
 		boundaryBorderRadius:     C.int(currentStyle.BoundaryBorderRadius()),
 		boundaryBackgroundColor:  (*C.char)(cachedStyle.BoundaryBgColor),
 		boundaryBorderColor:      (*C.char)(cachedStyle.BoundaryBorderColor),
+		labelsHidden:             C.int(boolToInt(currentStyle.LabelsHidden())),
 	}
 
 	// Call incremental C API

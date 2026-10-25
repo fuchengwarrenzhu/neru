@@ -28,6 +28,9 @@ type StyleMode struct {
 	boundaryBorderRadius     int
 	boundaryBackgroundColor  string
 	boundaryBorderColor      string
+	// labelsHidden is the one value here no configuration sets: a frame asks
+	// for it per draw (WithLabelsHidden).
+	labelsHidden bool
 }
 
 // FontSize returns the font size.
@@ -77,6 +80,20 @@ func (s StyleMode) BoundaryBackgroundColor() string { return s.boundaryBackgroun
 
 // BoundaryBorderColor returns the target boundary stroke color.
 func (s StyleMode) BoundaryBorderColor() string { return s.boundaryBorderColor }
+
+// LabelsHidden reports whether the labels are left off and only the target
+// boundaries drawn.
+func (s StyleMode) LabelsHidden() bool { return s.labelsHidden }
+
+// WithLabelsHidden returns the style drawing each target's boundary without
+// its label when hidden is true. It is how a frame's LabelsHidden reaches a
+// renderer without widening the draw call every backend implements; a backend
+// that does not read it draws the labels.
+func (s StyleMode) WithLabelsHidden(hidden bool) StyleMode {
+	s.labelsHidden = hidden
+
+	return s
+}
 
 // BuildStyle builds the hints style from the configuration .
 func BuildStyle(cfg config.HintsConfig, theme config.ThemeProvider) StyleMode {

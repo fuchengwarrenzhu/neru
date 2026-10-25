@@ -22,6 +22,7 @@ const (
 	flagRepeat          = "--repeat"
 	flagStrategy        = "--strategy"
 	flagHideOnEmpty     = "--hide-on-empty-search"
+	flagSemantic        = "--semantic"
 	flagExitOnUnmatched = "--exit-on-unmatched"
 	argAction           = "--action=left_click"
 	argActionMoveMouse  = "--action=move_mouse"
@@ -134,6 +135,17 @@ func flagCases() map[modecmd.Flag]flagCase {
 			build: func(a *modecmd.Activation) {
 				a.Search = new(true)
 				a.HideOnEmptySearch = new(true)
+			},
+		},
+		modecmd.FlagSemantic: {
+			mode: domain.ModeHints,
+			args: []string{argSearch, flagSemantic},
+			applied: func(a modecmd.Activation) bool {
+				return a.Semantic != nil && *a.Semantic
+			},
+			build: func(a *modecmd.Activation) {
+				a.Search = new(true)
+				a.Semantic = new(true)
 			},
 		},
 		modecmd.FlagConfirmOnLabel: {
@@ -825,6 +837,18 @@ func TestValidate_EnforcesFlagDependencies(t *testing.T) {
 			mode: domain.ModeHints,
 			args: []string{flagHideOnEmpty},
 			want: "--hide-on-empty-search requires --search",
+		},
+		{
+			name: "semantic without search",
+			mode: domain.ModeHints,
+			args: []string{argAction, flagSemantic},
+			want: "--semantic requires --search",
+		},
+		{
+			name: "semantic outside hints",
+			mode: domain.ModeGrid,
+			args: []string{flagSemantic},
+			want: "grid does not accept --semantic",
 		},
 		{
 			name: "empty modifier list",

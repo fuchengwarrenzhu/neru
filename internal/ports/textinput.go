@@ -10,6 +10,10 @@ type TextInputCallbacks struct {
 	OnQueryChanged func(query string)
 	OnConfirm      func()
 	OnCancel       func()
+	// OnTab, when set, takes Tab away from the field: pressing it calls this
+	// instead of typing a tab. Nil leaves Tab to the field. Only the macOS
+	// field has the hook; the others type the tab.
+	OnTab func()
 }
 
 // TextInputFrame defines the bounding box for the text input. X and Y are

@@ -52,6 +52,50 @@ typed, like Vimium. Bind `hints --action left_click`, as in
 point to a script instead, add `--on-exit` steps, which read it from `NERU_X`
 and `NERU_Y`, see [Scripting](scripting.md#hand-the-picked-point-to-a-script).
 
+### Describe the control instead of typing its label
+
+On macOS, a binding with `--semantic` picks a hint by what you say it is:
+
+```toml
+[hotkeys]
+"Primary+Shift+Z" = "hints --action left_click --toggle --search --semantic"
+
+[hints.boundary_highlight]
+enabled = true
+```
+
+1. Press the hotkey. Every clickable element is outlined, with no labels, and
+   a search field opens.
+2. Type what you want, such as `the code menu` or `close this tab`. Typing
+   filters nothing and sends nothing.
+3. Press `Return`. Neru asks once which outlined element you described, and
+   acts on it as if you had typed its label, so `--action`, `--repeat` and
+   `--on-exit` work as usual.
+
+If no single element fits, nothing is clicked and the box says why: `no single
+match`, `no API key`, `timed out` or `selection failed`, with `…` while it waits.
+Edit the text and press `Return` again. Editing while it waits withdraws the
+question, so only what the field says when you press `Return` is acted on. `Tab` shows the labels and closes the
+field, and `Escape` leaves hints. The outlines are the
+[boundary highlight](../reference/configuration.md#boundary-highlight), so the
+view is empty without it, and `neru config validate` warns about that.
+
+#### Privacy
+
+This is the only Neru feature that uses the network, and it is off unless a
+binding passes `--semantic`. Only when you press `Return`, it sends to
+`api.typesafe.ai` the text you typed and, for each outlined element, its role,
+subrole, title, description, its parent's role and title, whether it opens a
+menu, and the focused app's bundle identifier, each cut to 200 characters. It
+never sends what is typed into fields, your keystrokes, screenshots, window
+or page titles or positions, and it logs neither your text nor any element's.
+Hints found by the `vision` strategy are never sent, since their text is read
+off your screen.
+
+The API key is read from `~/.config/credentials/typesafe-ai/apikey` on each
+request. Neru refuses it when other users can read the file or its directory,
+so make the directory `0700` and the file `0600`.
+
 ## Recursive grid
 
 `Primary+Shift+C`, or `neru recursive_grid`.

@@ -27,6 +27,13 @@ var HintsCmd = BuildModeCommand(ModeConfig{
   label. Use --confirm-on-label to act on the match as soon as the label
   leaves one, without pressing Return.
 
+  Use --semantic with --search (macOS) to pick the element the search text
+  describes instead of matching it: labels hide, outlines stay, and Return
+  sends the text and each element's role, title, description, parent, popup
+  flag and app to api.typesafe.ai, using the key in
+  ~/.config/credentials/typesafe-ai/apikey. Tab shows the labels, Escape
+  leaves. It is the only network use, and only on Return.
+
   Use --exit-on-unmatched to exit hints mode when a pressed key does not
   start any hint label.
 
@@ -72,6 +79,7 @@ var HintsCmd = BuildModeCommand(ModeConfig{
     neru hints --search                      Start with search input shown
     neru hints --search --hide-on-empty-search  Start search with hints hidden until you type
     neru hints --action left_click --search --confirm-on-label  Click as soon as a typed label leaves one match
+    neru hints --action left_click --search --semantic  Click the element the search text describes
     neru hints --action left_click --exit-on-unmatched Exit overlay if key matches no hint
     neru hints --role button                 Hint only buttons
     neru hints --strategy vision             Detect elements by screen recognition

@@ -117,21 +117,45 @@ func (c *Client) ClickableNodes(
 		ignoreClickableCheck,
 	)
 
-	// Release tree nodes that are not part of the result to avoid
-	// leaking CFRetain'd AXUIElementRefs from NeruGetChildren/NeruGetVisibleRows.
-	ReleaseTreeExcept(tree, clickableNodes)
-
 	clickableNodesResult := make([]ax.Node, len(clickableNodes))
 
+	// The parent link goes with the release below, so what each node sits in
+	// is read first. It is already in memory: the walk read every node's info.
 	for i, node := range clickableNodes {
+		parentRole, parentTitle := parentContext(node)
 		clickableNodesResult[i] = &InfraNode{
 			node:           node,
 			clickable:      true,
 			configProvider: c.configProvider,
+			parentRole:     parentRole,
+			parentTitle:    parentTitle,
 		}
 	}
 
+	// Release tree nodes that are not part of the result to avoid
+	// leaking CFRetain'd AXUIElementRefs from NeruGetChildren/NeruGetVisibleRows.
+	ReleaseTreeExcept(tree, clickableNodes)
+
 	return clickableNodesResult, nil
+}
+
+// parentContext reads the role of the node's parent, and its title or, for a
+// parent with none, its description. A node with no parent, or one whose tree
+// was already released, sits in nothing known.
+func parentContext(node *TreeNode) (string, string) {
+	parent := node.Parent()
+	if parent == nil || parent.Info() == nil {
+		return "", ""
+	}
+
+	info := parent.Info()
+
+	title := info.Title()
+	if title == "" {
+		title = info.Description()
+	}
+
+	return info.Role(), title
 }
 
 // ApplicationByBundleID returns the application with the given bundle ID.
@@ -529,6 +553,10 @@ type InfraNode struct {
 	node           *TreeNode
 	clickable      bool
 	configProvider config.Provider
+	// parentRole and parentTitle are what the node sits in, read before its
+	// tree was released (parentContext).
+	parentRole  string
+	parentTitle string
 }
 
 // ID returns the node ID.
@@ -592,6 +620,26 @@ func (n *InfraNode) Value() string {
 	}
 
 	return n.node.Info().Value()
+}
+
+// Subrole returns the node subrole.
+func (n *InfraNode) Subrole() string {
+	if n.node == nil || n.node.Info() == nil {
+		return ""
+	}
+
+	return n.node.Info().Subrole()
+}
+
+// ParentRole returns the role of the node's parent, empty when unknown.
+func (n *InfraNode) ParentRole() string {
+	return n.parentRole
+}
+
+// ParentTitle returns the title of the node's parent, or its description when
+// it has no title; empty when unknown.
+func (n *InfraNode) ParentTitle() string {
+	return n.parentTitle
 }
 
 // SearchText returns additional text collected from the node subtree.

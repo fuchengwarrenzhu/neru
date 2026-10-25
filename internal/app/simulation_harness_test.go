@@ -213,7 +213,10 @@ type simOverlayPort struct {
 	hideUnmatched []bool
 	subgridCells  []*domainGrid.Cell
 	searchQueries []string
-	stickySymbols []string
+	// searchStatuses is the status each search input draw carried, in order:
+	// what a --semantic search says in place of its count.
+	searchStatuses []string
+	stickySymbols  []string
 
 	// gridPointers is the pointer each grid surface was last asked to draw, and
 	// gridPointerCalls how many times one was asked for in a call of its own.
@@ -309,6 +312,7 @@ func (m *simOverlayPort) DrawHintSearch(search ports.HintSearch) error {
 	defer m.mu.Unlock()
 
 	m.searchQueries = append(m.searchQueries, search.Query)
+	m.searchStatuses = append(m.searchStatuses, search.Status)
 
 	if m.refuseHintSearch {
 		return derrors.New(derrors.CodeNotSupported, "no hint search input on this backend")
@@ -683,6 +687,32 @@ func (m *simOverlayPort) lastHintMatchedPrefixes() map[string]string {
 	}
 
 	return prefixes
+}
+
+// lastHintLabelsHidden reports whether the most recent hints frame drew the
+// target boundaries without their labels.
+func (m *simOverlayPort) lastHintLabelsHidden() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if len(m.hintFrames) == 0 {
+		return false
+	}
+
+	return m.hintFrames[len(m.hintFrames)-1].LabelsHidden
+}
+
+// lastSearchStatus returns the status the most recent search input draw
+// carried, empty when it showed the count.
+func (m *simOverlayPort) lastSearchStatus() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if len(m.searchStatuses) == 0 {
+		return ""
+	}
+
+	return m.searchStatuses[len(m.searchStatuses)-1]
 }
 
 // lastHintScreen returns the display the most recent hints frame was drawn
@@ -1168,8 +1198,12 @@ type simHarness struct {
 	ax         *simAXPort
 	vision     *simVisionPort
 	textInput  *mocks.MockTextInputPort
-	cursor     *simCursor
-	hotkeys    *simHotkeyPort
+	// selector is the target selector a --semantic search asks. Every journey
+	// gets this fake, so no journey can reach the network; it matches nothing
+	// until a journey says what it picks.
+	selector *mocks.MockTargetSelector
+	cursor   *simCursor
+	hotkeys  *simHotkeyPort
 	// tap is the port the app was wired with: the shared mock, whose methods
 	// promote through, plus the drain a shutdown journey drives.
 	tap *simEventTap
@@ -1434,6 +1468,7 @@ func buildSimHarness(
 	// so the query arrives through the key stream. A journey that sets Started
 	// gets the field and drives it through its callbacks.
 	textInput := &mocks.MockTextInputPort{}
+	selector := &mocks.MockTargetSelector{}
 	appearance := &atomic.Bool{}
 	watcher := &mocks.MockAppWatcherPort{}
 	cursor := &simCursor{pos: displays[0].bounds.Min.Add(
@@ -1500,6 +1535,7 @@ func buildSimHarness(
 		app.WithLogger(zap.NewNop()),
 		app.WithEventTap(tap),
 		app.WithTextInput(textInput),
+		app.WithTargetSelector(selector),
 		app.WithIPCServer(&mocks.MockIPCPort{}),
 		app.WithWatcher(watcher),
 		app.WithHotkeyService(hotkeys),
@@ -1520,6 +1556,7 @@ func buildSimHarness(
 		ax:         axPort,
 		vision:     vision,
 		textInput:  textInput,
+		selector:   selector,
 		cursor:     cursor,
 		hotkeys:    hotkeys,
 		tap:        tap,

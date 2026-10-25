@@ -20,6 +20,7 @@ const (
 	msgModifierRequiresAction          = "--modifier requires --action"
 	msgModifierWithMoveMouse           = "--modifier needs a mouse button action, because move_mouse presses nothing for it to hold"
 	msgHideOnEmptySearchRequiresSearch = "--hide-on-empty-search requires --search"
+	msgSemanticRequiresSearch          = "--semantic requires --search"
 	msgTwoCycles                       = "only one flag per command can take a cycle list, because two lists advance together and never mix, so give --strategy or --capture-scope a single value"
 	msgSplitWordWithCycle              = "--split-word cannot be combined with a --strategy cycle list, because word splitting needs the vision strategy on every step"
 	msgTargetsWithCollection           = "--targets cannot be combined with --role, --text, --strategy, --capture-scope or --split-word, because the targets replace the scan, so filter them before sending them"
@@ -107,6 +108,10 @@ var dependencies = []dependency{
 	{
 		unmet:   func(a Activation) bool { return isTrue(a.HideOnEmptySearch) && !isTrue(a.Search) },
 		message: msgHideOnEmptySearchRequiresSearch,
+	},
+	{
+		unmet:   func(a Activation) bool { return isTrue(a.Semantic) && !isTrue(a.Search) },
+		message: msgSemanticRequiresSearch,
 	},
 	{
 		unmet:   func(a Activation) bool { return a.Modifier != nil && a.Action == nil },

@@ -45,6 +45,7 @@ typedef struct {
 	int boundaryBorderRadius;       ///< Target boundary corner radius
 	char *boundaryBackgroundColor;  ///< Target boundary fill color
 	char *boundaryBorderColor;      ///< Target boundary stroke color
+	int labelsHidden;               ///< Draw only the target boundaries, no labels (0 = labels, 1 = hidden)
 } HintStyle;
 
 /// Hint data
@@ -71,6 +72,7 @@ typedef struct {
 /// Hints search input data
 typedef struct {
 	char *query;       ///< Current search query
+	char *status;      ///< Short status drawn in place of the count, or NULL/empty for the count
 	int resultCount;   ///< Current filtered hint count
 	CGPoint position;  ///< Input position in overlay-local coordinates
 	double width;      ///< Input width
