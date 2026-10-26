@@ -289,6 +289,9 @@ func (h *handlerState) passthroughTick(mode domain.Mode, session uint64) {
 		filterRoles := h.hints.Context.FilterRoles()
 		filterTextContains := h.hints.Context.FilterTextContains()
 		startWithSearch := h.hints.Context.StartWithSearch()
+		semanticSearch := h.hints.Context.Semantic()
+		confirmOnLabel := h.hints.Context.ConfirmOnLabel()
+		exitOnUnmatched := h.hints.Context.ExitOnUnmatched()
 		strategyOverride := h.hints.Context.StrategyOverride()
 		captureScopeOverride := h.hints.Context.CaptureScopeOverride()
 		labelDirectionOverride := h.hints.Context.LabelDirectionOverride()
@@ -299,6 +302,9 @@ func (h *handlerState) passthroughTick(mode domain.Mode, session uint64) {
 			FilterRoles:        filterRoles,
 			FilterTextContains: filterTextContains,
 			Search:             &startWithSearch,
+			Semantic:           &semanticSearch,
+			ConfirmOnLabel:     &confirmOnLabel,
+			ExitOnUnmatched:    &exitOnUnmatched,
 			Strategy:           &strategyOverride,
 			CaptureScope:       &captureScopeOverride,
 			LabelDirection:     &labelDirectionOverride,
