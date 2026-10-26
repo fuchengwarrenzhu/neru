@@ -13,11 +13,14 @@ import (
 const (
 	semanticHotkey  = "Primary+Shift+Z"
 	semanticBinding = "hints --action left_click --toggle --search --semantic"
+	// semanticApp is the application the hints open over.
+	semanticApp = "com.example.Editor"
 )
 
 // TestSimulation_SemanticHintSearchClicksTheDescribedControl is the journey:
 // the chord shows every target's boundary with no labels and opens the field,
-// typing sends nothing, Return asks the selector once, and its pick is clicked
+// typing sends nothing, Return reads the application the hints opened over
+// again and asks the selector once, and its pick is read again and clicked
 // through the confirm path a typed label takes. The chord pressed while the
 // search is up toggles hints off.
 func TestSimulation_SemanticHintSearchClicksTheDescribedControl(t *testing.T) {
@@ -28,6 +31,7 @@ func TestSimulation_SemanticHintSearchClicksTheDescribedControl(t *testing.T) {
 	elements := threeButtons(t)
 	sim := newSimHarness(t, cfg, elements)
 	sim.textInput.Started = true
+	sim.ax.setFocusedApp(semanticApp)
 
 	// The selector picks the candidate titled "Search"; the fake stands in for
 	// the remote model and never reaches the network.
@@ -79,6 +83,15 @@ func TestSimulation_SemanticHintSearchClicksTheDescribedControl(t *testing.T) {
 		t.Errorf("selector asked %q, want the submitted query once", queries)
 	}
 
+	sim.waitFor("the scan's lease released", func() bool {
+		_, released := sim.ax.leasedScans()
+		return released
+	})
+
+	if apps, _ := sim.ax.leasedScans(); len(apps) != 1 || apps[0] != semanticApp {
+		t.Errorf("Return scanned %q, want the application the hints opened over once", apps)
+	}
+
 	// A one-shot click returns to idle, as it does for a typed label.
 	sim.waitMode(domain.ModeIdle)
 
@@ -105,6 +118,7 @@ func TestSimulation_SemanticHintSearchKeepsTheSearchOnNoMatch(t *testing.T) {
 	elements := threeButtons(t)
 	sim := newSimHarness(t, cfg, elements)
 	sim.textInput.Started = true
+	sim.ax.setFocusedApp(semanticApp)
 
 	sim.pressHotkey(semanticHotkey)
 	sim.waitMode(domain.ModeHints)
