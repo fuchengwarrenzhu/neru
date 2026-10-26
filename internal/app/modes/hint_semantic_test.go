@@ -1475,8 +1475,8 @@ func TestHandler_ApplySemanticScan_KeepsTheSearchWhenThereIsNothingToAsk(t *test
 				t.Errorf("status = %q, want %q", got, testCase.status)
 			}
 
-			fixture.locked(func(h *handlerState) {
-				ctx := h.hints.Context
+			fixture.locked(func(locked *handlerState) {
+				ctx := locked.hints.Context
 				if !ctx.SearchActive() || ctx.SearchQuery() != semanticQuery {
 					t.Errorf("search active = %v with query %q, want it open with %q",
 						ctx.SearchActive(), ctx.SearchQuery(), semanticQuery)
@@ -1486,7 +1486,7 @@ func TestHandler_ApplySemanticScan_KeepsTheSearchWhenThereIsNothingToAsk(t *test
 					t.Error("the hints on screen were replaced by a scan that offered nothing")
 				}
 
-				if h.semanticCancel != nil {
+				if locked.semanticCancel != nil {
 					t.Error("the finished request is still held as the one in flight")
 				}
 			})
