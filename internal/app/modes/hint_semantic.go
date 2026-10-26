@@ -57,6 +57,17 @@ const (
 	semanticStatusScanFailed  = "scan failed"
 	semanticStatusNothing     = "nothing to select"
 	semanticStatusMoved       = "target changed"
+	semanticStatusFocusMoved  = "focus moved"
+)
+
+// One Return is one request, bounded as a whole by the target selection
+// budget, and each step gets a deadline within what is left of it: the scan at
+// most semanticScanShare of the budget, so a slow scan leaves the selector
+// time to answer, and the second read at most semanticResolveTimeout. With no
+// budget the scan keeps the HintTimeout every hint walk gets.
+const (
+	semanticScanShare      = 2
+	semanticResolveTimeout = time.Second
 )
 
 // Why an answer was dropped, for the debug log.
@@ -84,10 +95,11 @@ type semanticAnswer struct {
 	// submit.
 	token   uint64
 	session uint64
-	// focus is the focused-app publication at the submit. Any later one means
-	// another process took the focus, so the answer no longer applies. The
-	// search field's own activation never publishes: the watcher skips Neru
-	// and a return to the process it last announced (appwatcher_darwin.m).
+	// focus is the focused-app publication when the hints were read
+	// (h.hintsFocus). Any later one means another process took the focus, so
+	// the answer no longer applies. The search field's own activation never
+	// publishes: the watcher skips Neru and a return to the process it last
+	// announced (appwatcher_darwin.m).
 	focus *string
 	// source is the hint collection the candidates were built from: the one
 	// on screen at the submit, and the scan's once it is adopted. Its identity
@@ -121,16 +133,24 @@ type semanticScan struct {
 	labelDirection     string
 	screen             image.Rectangle
 
-	hints    []*domainHint.Interface
+	hints []*domainHint.Interface
+	// offered are the hints whose element the lease holds, in scan order.
+	// Only those are asked about: an element that cannot be read again before
+	// the click cannot be confirmed, so it is never a choice.
+	offered  []*domainHint.Interface
 	lease    ports.ElementLease
 	err      error
 	duration time.Duration
 }
 
-// run scans with nothing held, within ctx and the HintTimeout every hint walk
-// gets, and keeps the hints whose center is on the session's screen.
-func (scan *semanticScan) run(ctx context.Context, service *services.HintService) {
-	scanCtx, cancel := context.WithTimeout(ctx, HintTimeout)
+// run scans with nothing held, within ctx and bound, and keeps the hints whose
+// center is on the session's screen.
+func (scan *semanticScan) run(
+	ctx context.Context,
+	bound time.Duration,
+	service *services.HintService,
+) {
+	scanCtx, cancel := context.WithTimeout(ctx, bound)
 	defer cancel()
 
 	started := time.Now()
@@ -152,25 +172,18 @@ func (scan *semanticScan) run(ctx context.Context, service *services.HintService
 
 	scan.hints = filterHintsForScreen(hints, scan.screen)
 	scan.lease = lease
-}
 
-// leased is the hints the scan can read again, in scan order. Only those are
-// offered: an element that cannot be read again before the click cannot be
-// confirmed, so it is never a choice.
-func (scan *semanticScan) leased() []*domainHint.Interface {
-	if scan.lease == nil {
-		return nil
+	if lease == nil {
+		return
 	}
 
-	leased := make([]*domainHint.Interface, 0, len(scan.hints))
+	scan.offered = make([]*domainHint.Interface, 0, len(scan.hints))
 
 	for _, hint := range scan.hints {
-		if scan.lease.Holds(hint.Element()) {
-			leased = append(leased, hint)
+		if lease.Holds(hint.Element()) {
+			scan.offered = append(scan.offered, hint)
 		}
 	}
-
-	return leased
 }
 
 // submitSemanticSearch asks the target selector which hint the query
@@ -224,7 +237,7 @@ func (h *handlerState) submitSemanticSearch() {
 	answer := semanticAnswer{
 		token:   h.semanticRequest,
 		session: h.hintSearchSession,
-		focus:   h.focusedApp.publication(),
+		focus:   h.hintsFocus,
 		source:  source,
 	}
 
@@ -234,6 +247,7 @@ func (h *handlerState) submitSemanticSearch() {
 
 	service := h.hintService
 	selector := h.targetSelector
+	scanBound := h.semanticScanBound()
 	outer := h.outer
 
 	// Nothing waits on this goroutine. It scans and asks with no lock held,
@@ -242,7 +256,7 @@ func (h *handlerState) submitSemanticSearch() {
 	go func() {
 		defer cancel()
 
-		scan.run(requestCtx, service)
+		scan.run(requestCtx, scanBound, service)
 
 		if scan.lease != nil {
 			// The lease is this goroutine's alone, so nothing can release a
@@ -260,11 +274,30 @@ func (h *handlerState) submitSemanticSearch() {
 		answer.latency = time.Since(started)
 
 		if chosen, named := answer.named(); named && answer.err == nil {
-			answer.live, answer.liveErr = scan.lease.Resolve(requestCtx, chosen.Element())
+			answer.live, answer.liveErr = resolveWithin(requestCtx, scan.lease, chosen)
 		}
 
 		outer.settleSemanticSelection(answer)
 	}()
+}
+
+// resolveWithin reads the chosen element again within semanticResolveTimeout
+// and what is left of the request. A read a deadline cut short says so, so it
+// is reported as slow rather than as a target that changed.
+func resolveWithin(
+	ctx context.Context,
+	lease ports.ElementLease,
+	chosen *domainHint.Interface,
+) (image.Rectangle, error) {
+	resolveCtx, cancel := context.WithTimeout(ctx, semanticResolveTimeout)
+	defer cancel()
+
+	live, err := lease.Resolve(resolveCtx, chosen.Element())
+	if err != nil && errors.Is(resolveCtx.Err(), context.DeadlineExceeded) {
+		err = derrors.Wrap(err, derrors.CodeTimeout, "reading the chosen element again timed out")
+	}
+
+	return live, err
 }
 
 // semanticScanRefusal says why Return cannot scan the session for a
@@ -285,6 +318,10 @@ func (h *handlerState) semanticScanRefusal() string {
 		// The application the session was activated over is the one to scan;
 		// with none recorded, any other would be a guess.
 		return semanticStatusScanFailed
+	case h.focusedApp.publication() != h.hintsFocus:
+		// Another application took the focus after the hints were read, so the
+		// one they were read over may now be covered.
+		return semanticStatusFocusMoved
 	}
 
 	asked, _ := semanticCandidates(ctx.SourceHints().All(), ctx.ScannedApp())
@@ -373,7 +410,7 @@ func (h *handlerState) applySemanticScan(
 		return nil, false
 	}
 
-	asked, candidates := semanticCandidates(scan.leased(), scan.app)
+	asked, candidates := semanticCandidates(scan.offered, scan.app)
 	if len(candidates) == 0 {
 		h.semanticCancel = nil
 
@@ -422,7 +459,7 @@ func semanticScanErrorStatus(err error) string {
 	return semanticStatusScanFailed
 }
 
-// semanticRequestContext bounds one selection by the configured budget, under
+// semanticRequestContext bounds one request by the configured budget, under
 // the handler's context so a shutdown stops it too.
 func (h *handlerState) semanticRequestContext() (context.Context, context.CancelFunc) {
 	if h.targetSelectionBudget <= 0 {
@@ -430,6 +467,15 @@ func (h *handlerState) semanticRequestContext() (context.Context, context.Cancel
 	}
 
 	return context.WithTimeout(h.ctx, h.targetSelectionBudget)
+}
+
+// semanticScanBound is the most of the request the scan may take.
+func (h *handlerState) semanticScanBound() time.Duration {
+	if h.targetSelectionBudget <= 0 {
+		return HintTimeout
+	}
+
+	return min(HintTimeout, h.targetSelectionBudget/semanticScanShare)
 }
 
 // cancelSemanticRequest drops the selection in flight, if any: its answer
@@ -532,16 +578,20 @@ func (h *handlerState) applySemanticSelection(answer semanticAnswer) {
 	}
 
 	if liveErr != nil || !live.Element().Center().In(h.screenBounds) {
-		code := derrors.CodeElementNotFound
+		code, status := derrors.CodeElementNotFound, semanticStatusMoved
 		if liveErr != nil {
 			code = derrors.GetCode(liveErr)
+		}
+
+		if code == derrors.CodeTimeout {
+			status = semanticStatusTimedOut
 		}
 
 		h.logger.Debug("Semantic selection named a target that changed", append(fields,
 			zap.String("outcome", semanticOutcomeError),
 			zap.String("error_code", string(code)),
 		)...)
-		h.showSemanticStatus(semanticStatusMoved)
+		h.showSemanticStatus(status)
 
 		return
 	}
@@ -600,6 +650,12 @@ func (h *handlerState) releaseDroppedSemanticRequest(answer semanticAnswer, reas
 	h.semanticCancel = nil
 
 	if h.hints == nil || h.hints.Context == nil || !h.hints.Context.SearchActive() {
+		return
+	}
+
+	if reason == staleFocusMoved {
+		h.showSemanticStatus(semanticStatusFocusMoved)
+
 		return
 	}
 

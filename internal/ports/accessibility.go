@@ -113,7 +113,8 @@ type ElementLeaser interface {
 // ElementLease holds the platform references of the elements one leased scan
 // returned. It has one owner, which releases it once it is done with them.
 type ElementLease interface {
-	// Holds reports whether the lease holds a reference for elem.
+	// Holds reports whether the lease holds a reference for elem. It answers
+	// from what the lease holds and asks the platform nothing.
 	Holds(elem *element.Element) bool
 
 	// Resolve reads where elem is now. It fails with CodeElementNotFound when

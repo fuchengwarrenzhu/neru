@@ -172,6 +172,10 @@ func (h *handlerState) activateHintModeInternal(activation modecmd.Activation) {
 		h.hints.Context.SetScannedApp(bundleID)
 	}
 
+	// Read with the application, so a semantic pick can tell the focus has
+	// moved since the hints were read (hint_semantic.go).
+	h.hintsFocus = h.focusedApp.publication()
+
 	// Get hints from service. Drawing is intentionally deferred until after
 	// active-screen filtering so activation performs one full overlay render.
 	ctx, cancel := context.WithTimeout(h.ctx, HintTimeout)

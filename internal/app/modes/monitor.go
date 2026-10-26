@@ -248,6 +248,11 @@ func (h *Handler) clearFrameForMonitorMove() (image.Rectangle, bool) {
 		return image.Rectangle{}, false
 	}
 
+	// A semantic pick in flight was asked about the display being left, and
+	// the warp below runs unlocked, so it is withdrawn here rather than at the
+	// refresh after it.
+	h.withdrawSemanticRequest()
+
 	h.clearOverlayFrameForRedraw()
 
 	return h.screenBounds, true

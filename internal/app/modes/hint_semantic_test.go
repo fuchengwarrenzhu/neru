@@ -729,6 +729,19 @@ func TestHandler_ApplySemanticSelection_DropsAStaleAnswer(t *testing.T) {
 				fixture.handler.PublishFocusedApp(otherAppID)
 			},
 		},
+		{
+			// The warp to the other display runs unlocked between the clear
+			// and the refresh, so the clear is where the pick is withdrawn.
+			name:   "hints moving to another display",
+			reason: staleSuperseded,
+			change: func(t *testing.T, fixture *semanticFixture) {
+				t.Helper()
+
+				if _, cleared := fixture.handler.clearFrameForMonitorMove(); !cleared {
+					t.Fatal("the monitor move cleared nothing")
+				}
+			},
+		},
 	}
 
 	for _, testCase := range tests {
@@ -1081,6 +1094,13 @@ func TestHandler_SubmitSemanticSearch_RefusesWhatItCannotConfirm(t *testing.T) {
 			status: semanticStatusTargetsOnly,
 		},
 		{
+			name: "another app took the focus after the hints were read",
+			session: func(_ *testing.T, fixture *semanticFixture) {
+				fixture.handler.PublishFocusedApp(otherAppID)
+			},
+			status: semanticStatusFocusMoved,
+		},
+		{
 			name: "no application recorded at activation",
 			session: func(_ *testing.T, fixture *semanticFixture) {
 				fixture.locked(func(h *handlerState) { h.hints.Context.SetScannedApp("") })
@@ -1288,6 +1308,9 @@ func TestHandler_SubmitSemanticSearch_DropsAScanOvertakenBeforeAsking(t *testing
 		name   string
 		reason string
 		change func(t *testing.T, fixture *semanticFixture)
+		// status is what the box says once the scan is dropped, when the
+		// search is still open to say it.
+		status string
 	}{
 		{
 			name:   "retyped",
@@ -1316,6 +1339,7 @@ func TestHandler_SubmitSemanticSearch_DropsAScanOvertakenBeforeAsking(t *testing
 			change: func(_ *testing.T, fixture *semanticFixture) {
 				fixture.handler.PublishFocusedApp(otherAppID)
 			},
+			status: semanticStatusFocusMoved,
 		},
 	}
 
@@ -1337,6 +1361,10 @@ func TestHandler_SubmitSemanticSearch_DropsAScanOvertakenBeforeAsking(t *testing
 
 			if asked := len(fixture.selector.Queries()); asked != 0 {
 				t.Errorf("selector asked %d times after the scan was overtaken, want 0", asked)
+			}
+
+			if got := fixture.status(); testCase.status != "" && got != testCase.status {
+				t.Errorf("status = %q, want %q", got, testCase.status)
 			}
 
 			fixture.waitForReleases(t)
@@ -1391,6 +1419,8 @@ func TestHandler_ApplySemanticScan_KeepsTheSearchWhenThereIsNothingToAsk(t *test
 		page   func(t *testing.T, fixture *semanticFixture)
 		status string
 		log    string
+		// leased says the scan returned a lease, which must come back.
+		leased bool
 	}{
 		{
 			name: "the scan failed",
@@ -1407,6 +1437,7 @@ func TestHandler_ApplySemanticScan_KeepsTheSearchWhenThereIsNothingToAsk(t *test
 			page:   func(_ *testing.T, fixture *semanticFixture) { fixture.changePage() },
 			status: semanticStatusNothing,
 			log:    "Semantic scan found nothing to select",
+			leased: true,
 		},
 		{
 			name: "nothing the scan found could be leased",
@@ -1419,6 +1450,7 @@ func TestHandler_ApplySemanticScan_KeepsTheSearchWhenThereIsNothingToAsk(t *test
 			},
 			status: semanticStatusNothing,
 			log:    "Semantic scan found nothing to select",
+			leased: true,
 		},
 	}
 
@@ -1453,10 +1485,18 @@ func TestHandler_ApplySemanticScan_KeepsTheSearchWhenThereIsNothingToAsk(t *test
 				if ctx.SourceHints() != before {
 					t.Error("the hints on screen were replaced by a scan that offered nothing")
 				}
+
+				if h.semanticCancel != nil {
+					t.Error("the finished request is still held as the one in flight")
+				}
 			})
 
 			if stops := fixture.field.StopCount(); stops != 0 {
 				t.Errorf("search field stopped %d times, want it left open", stops)
+			}
+
+			if testCase.leased {
+				fixture.waitForReleases(t)
 			}
 		})
 	}
@@ -1501,18 +1541,28 @@ func TestHandler_ApplySemanticSelection_LeavesATargetThatChangedUnclicked(t *tes
 	tests := []struct {
 		name    string
 		resolve func(*element.Element) (image.Rectangle, error)
+		status  string
 	}{
 		{
 			name: "gone, hidden or covered",
 			resolve: func(*element.Element) (image.Rectangle, error) {
 				return image.Rectangle{}, derrors.New(derrors.CodeElementNotFound, "covered")
 			},
+			status: semanticStatusMoved,
 		},
 		{
 			name: "moved off the screen",
 			resolve: func(*element.Element) (image.Rectangle, error) {
 				return image.Rect(1200, 900, 1280, 930), nil
 			},
+			status: semanticStatusMoved,
+		},
+		{
+			name: "too slow to read again",
+			resolve: func(*element.Element) (image.Rectangle, error) {
+				return image.Rectangle{}, derrors.New(derrors.CodeTimeout, "hung")
+			},
+			status: semanticStatusTimedOut,
 		},
 	}
 
@@ -1536,8 +1586,8 @@ func TestHandler_ApplySemanticSelection_LeavesATargetThatChangedUnclicked(t *tes
 				t.Errorf("cursor moved to %v, want nothing clicked", moves)
 			}
 
-			if got := fixture.status(); got != semanticStatusMoved {
-				t.Errorf("status = %q, want %q", got, semanticStatusMoved)
+			if got := fixture.status(); got != testCase.status {
+				t.Errorf("status = %q, want %q", got, testCase.status)
 			}
 
 			fixture.locked(func(h *handlerState) {
