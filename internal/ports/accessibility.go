@@ -89,6 +89,46 @@ type ScrollCanceler interface {
 	CancelScroll()
 }
 
+// ElementLeaser is an optional AccessibilityPort extension for a caller that
+// acts on a scanned element some time after the scan returned, and has to know
+// then that it is still the element it was shown. ClickableElements copies
+// each element and gives its platform reference back at once, so nothing it
+// returns can be read again; a lease keeps those references until its owner
+// releases it. Treat a missing implementation as nothing that can be
+// confirmed: the caller does not act.
+type ElementLeaser interface {
+	// LeaseClickableElements is ClickableElements over the focused window and
+	// popovers of app, the application with that identifier, rather than over
+	// whichever application is in front. Only the elements of those windows
+	// are leased; the other surfaces the filter asks for are collected as
+	// ClickableElements collects them, and are not. An app that is not
+	// running is an error. On an error the lease is nil and nothing is held.
+	LeaseClickableElements(
+		ctx context.Context,
+		app string,
+		filter ElementFilter,
+	) ([]*element.Element, ElementLease, error)
+}
+
+// ElementLease holds the platform references of the elements one leased scan
+// returned. It has one owner, which releases it once it is done with them.
+type ElementLease interface {
+	// Holds reports whether the lease holds a reference for elem.
+	Holds(elem *element.Element) bool
+
+	// Resolve reads where elem is now. It fails with CodeElementNotFound when
+	// the lease holds no reference for elem, when the element is gone or
+	// hidden, and when the element elem's own application reports at the
+	// centre of the live frame is neither elem nor inside it. It looks at no
+	// other application's windows. What it returns is a read, not a
+	// guarantee: the element can move as soon as it has.
+	Resolve(ctx context.Context, elem *element.Element) (image.Rectangle, error)
+
+	// Release gives every reference back. A Resolve in progress finishes
+	// first, and a second call does nothing.
+	Release()
+}
+
 // ElementFilter defines criteria for filtering UI elements.
 type ElementFilter struct {
 	// Roles specifies which accessibility roles to include.
