@@ -282,8 +282,11 @@ func (h *handlerState) submitSemanticSearch() {
 }
 
 // resolveWithin reads the chosen element again within semanticResolveTimeout
-// and what is left of the request. A read a deadline cut short says so, so it
-// is reported as slow rather than as a target that changed.
+// and what is left of the request. A read that ends after its context did is
+// thrown away even when it succeeded: the native read cannot be interrupted,
+// so it can finish late, and a frame read after the budget ran out is not one
+// the request may act on. A read a deadline ended is reported as slow rather
+// than as a target that changed.
 func resolveWithin(
 	ctx context.Context,
 	lease ports.ElementLease,
@@ -293,8 +296,14 @@ func resolveWithin(
 	defer cancel()
 
 	live, err := lease.Resolve(resolveCtx, chosen.Element())
-	if err != nil && errors.Is(resolveCtx.Err(), context.DeadlineExceeded) {
-		err = derrors.Wrap(err, derrors.CodeTimeout, "reading the chosen element again timed out")
+
+	switch ended := resolveCtx.Err(); {
+	case errors.Is(ended, context.DeadlineExceeded):
+		return image.Rectangle{}, derrors.New(derrors.CodeTimeout,
+			"reading the chosen element again timed out")
+	case ended != nil:
+		return image.Rectangle{}, derrors.WrapContextCanceled(resolveCtx,
+			"reading the chosen element again")
 	}
 
 	return live, err

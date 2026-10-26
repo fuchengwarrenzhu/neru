@@ -83,8 +83,9 @@ type semanticFixture struct {
 	// scanErr fails the next scan.
 	scanErr error
 	// resolve says where a leased element is read again; nil reads it where
-	// it was scanned.
-	resolve func(*element.Element) (image.Rectangle, error)
+	// it was scanned. resolveCtx does the same with the read's context.
+	resolve    func(*element.Element) (image.Rectangle, error)
+	resolveCtx func(context.Context, *element.Element) (image.Rectangle, error)
 	// gate, when set, holds every scan until the test sends on it, after
 	// announcing it on scanning.
 	gate     chan struct{}
@@ -276,7 +277,8 @@ func (f *semanticFixture) leaseScan(
 	resolve := f.resolve
 
 	lease := &portmocks.MockElementLease{
-		HoldsFunc: func(elem *element.Element) bool { return !unheld[elem.ID()] },
+		HoldsFunc:   func(elem *element.Element) bool { return !unheld[elem.ID()] },
+		ResolveFunc: f.resolveCtx,
 	}
 	if resolve != nil {
 		lease.ResolveFunc = func(_ context.Context, elem *element.Element) (image.Rectangle, error) {
@@ -1541,7 +1543,10 @@ func TestHandler_ApplySemanticSelection_LeavesATargetThatChangedUnclicked(t *tes
 	tests := []struct {
 		name    string
 		resolve func(*element.Element) (image.Rectangle, error)
-		status  string
+		// resolveCtx, when set, reads the element again with the context the
+		// read was given.
+		resolveCtx func(context.Context, *element.Element) (image.Rectangle, error)
+		status     string
 	}{
 		{
 			name: "gone, hidden or covered",
@@ -1564,6 +1569,17 @@ func TestHandler_ApplySemanticSelection_LeavesATargetThatChangedUnclicked(t *tes
 			},
 			status: semanticStatusTimedOut,
 		},
+		{
+			// The native read cannot be interrupted, so it can come back
+			// with a good frame after its deadline; that frame is not acted on.
+			name: "read again successfully, but after its deadline",
+			resolveCtx: func(ctx context.Context, elem *element.Element) (image.Rectangle, error) {
+				<-ctx.Done()
+
+				return elem.Bounds(), nil
+			},
+			status: semanticStatusTimedOut,
+		},
 	}
 
 	for _, testCase := range tests {
@@ -1572,6 +1588,7 @@ func TestHandler_ApplySemanticSelection_LeavesATargetThatChangedUnclicked(t *tes
 
 			fixture.pageMu.Lock()
 			fixture.resolve = testCase.resolve
+			fixture.resolveCtx = testCase.resolveCtx
 			fixture.pageMu.Unlock()
 
 			fixture.typeQuery(semanticQuery)
@@ -1590,9 +1607,11 @@ func TestHandler_ApplySemanticSelection_LeavesATargetThatChangedUnclicked(t *tes
 				t.Errorf("status = %q, want %q", got, testCase.status)
 			}
 
-			fixture.locked(func(h *handlerState) {
-				if !h.hints.Context.SearchActive() {
-					t.Error("the search closed; a target that changed should leave it open")
+			fixture.locked(func(locked *handlerState) {
+				ctx := locked.hints.Context
+				if !ctx.SearchActive() || ctx.SearchQuery() != semanticQuery {
+					t.Errorf("search active = %v with query %q, want it open with %q",
+						ctx.SearchActive(), ctx.SearchQuery(), semanticQuery)
 				}
 			})
 
