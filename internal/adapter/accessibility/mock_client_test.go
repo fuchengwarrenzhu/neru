@@ -291,6 +291,11 @@ type MockNode struct {
 	// MockHandles records the handles Retain hands out; a node without one
 	// cannot be retained.
 	MockHandles *MockHandles
+
+	// released is set by Release, after which the node, like a real one,
+	// can no longer be retained. It is a plain int32 read atomically, so a
+	// test may still copy a node by value.
+	released int32
 }
 
 // ID returns the configured ID.
@@ -344,12 +349,17 @@ func (n *MockNode) IsClickable() bool {
 }
 
 // Release is a no-op for mock nodes.
-func (n *MockNode) Release() {}
+func (n *MockNode) Release() { atomic.StoreInt32(&n.released, 1) }
 
-// Retain hands out a handle recorded in MockHandles (ax.RetainableNode).
+// Retain hands out a handle recorded in MockHandles (ax.RetainableNode). A
+// released node cannot be retained, as a released element cannot be cloned.
 func (n *MockNode) Retain() (ax.Handle, error) {
 	if n.MockHandles == nil {
 		return nil, derrors.New(derrors.CodeAccessibilityFailed, "node cannot be retained")
+	}
+
+	if atomic.LoadInt32(&n.released) == 1 {
+		return nil, derrors.New(derrors.CodeAccessibilityFailed, "node already released")
 	}
 
 	return n.MockHandles.retain(n), nil

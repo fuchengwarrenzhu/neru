@@ -2,6 +2,7 @@ package accessibility
 
 import (
 	"context"
+	"errors"
 	"image"
 	"sync"
 	"time"
@@ -122,16 +123,21 @@ func (l *elementLease) Holds(elem *element.Element) bool {
 // Resolve reads where elem is now through the reference the lease holds for
 // it, within the earlier of ctx's deadline and maxResolveBudget; running out
 // fails it with CodeTimeout. The context cannot interrupt the native read once
-// it has started, so each message the read sends waits at most the shorter of
-// half a second and the time left, and in the worst case Resolve returns one
-// such wait, half a second, past the deadline. The read lock is held for the
-// whole native read, so Release waits for it.
+// it has started, but each message the read sends waits at most the shorter of
+// half a second and the time left, so it returns about when the budget ends:
+// late by the timers' slack, and by however long it waited for the read lock.
+// The read lock is held for the whole native read, so Release waits for it.
+// Calls must not overlap: each bounds the same reference's own timeout.
 func (l *elementLease) Resolve(
 	ctx context.Context,
 	elem *element.Element,
 ) (image.Rectangle, error) {
 	select {
 	case <-ctx.Done():
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return image.Rectangle{}, derrors.New(derrors.CodeTimeout, "element resolve timed out")
+		}
+
 		return image.Rectangle{}, derrors.WrapContextCanceled(ctx, "element resolve")
 	default:
 	}

@@ -950,25 +950,45 @@ static const int kNeruResolveMaxAncestors = 16;
 /// Monotonic time in nanoseconds.
 static uint64_t resolveNow(void) { return clock_gettime_nsec_np(CLOCK_UPTIME_RAW); }
 
+/// Time left below which a resolve sends nothing more (seconds). A timeout
+/// that small could reach AX as zero, which it reads as "use the default".
+static const double kNeruResolveMinLeft = 0.005;
+
+/// What boundNextRead bounded the next message by.
+typedef enum {
+	NeruReadExpired = 0,  ///< No time left: the message must not be sent
+	NeruReadCapped,       ///< kNeruResolveReadTimeout
+	NeruReadByDeadline,   ///< The time left, which was the shorter
+} NeruReadBound;
+
 /// Bound the next message sent through ref by kNeruResolveReadTimeout or the
 /// time left before deadline, whichever is shorter. The timeout is the ref's
 /// own, so this is only called on a ref no one else is using: the lease's, or
 /// one the resolve created. Nothing process-wide or system-wide changes.
-/// @return false when no time is left, so the message must not be sent
-static bool boundNextRead(AXUIElementRef ref, uint64_t deadline) {
+/// @return What the message is bounded by; NeruReadExpired when it must not be sent
+static NeruReadBound boundNextRead(AXUIElementRef ref, uint64_t deadline) {
 	uint64_t now = resolveNow();
 	if (now >= deadline)
-		return false;
+		return NeruReadExpired;
 
 	double left = (double)(deadline - now) / NSEC_PER_SEC;
-	AXUIElementSetMessagingTimeout(ref, (float)fmin(left, kNeruResolveReadTimeout));
-	return true;
+	if (left < kNeruResolveMinLeft)
+		return NeruReadExpired;
+
+	if (left < kNeruResolveReadTimeout) {
+		AXUIElementSetMessagingTimeout(ref, (float)left);
+		return NeruReadByDeadline;
+	}
+
+	AXUIElementSetMessagingTimeout(ref, (float)kNeruResolveReadTimeout);
+	return NeruReadCapped;
 }
 
-/// A message that could not complete ran out of time when the deadline has
-/// passed, and otherwise went unanswered.
-static NeruResolveStatus incompleteStatus(uint64_t deadline) {
-	return resolveNow() >= deadline ? NeruResolveTimedOut : NeruResolveFailed;
+/// A message that could not complete ran out of time when it was given only
+/// what was left of the budget, or the deadline has passed; otherwise it went
+/// unanswered.
+static NeruResolveStatus incompleteStatus(uint64_t deadline, NeruReadBound bound) {
+	return bound == NeruReadByDeadline || resolveNow() >= deadline ? NeruResolveTimedOut : NeruResolveFailed;
 }
 
 /// elementOrAncestorMatches for a resolve: the same climb from hit towards
@@ -986,7 +1006,8 @@ static NeruResolveStatus resolveAncestry(AXUIElementRef hit, AXUIElementRef targ
 			return NeruResolveFound;
 		}
 
-		if (!boundNextRead(current, deadline)) {
+		NeruReadBound bound = boundNextRead(current, deadline);
+		if (bound == NeruReadExpired) {
 			CFRelease(current);
 			return NeruResolveTimedOut;
 		}
@@ -998,7 +1019,7 @@ static NeruResolveStatus resolveAncestry(AXUIElementRef hit, AXUIElementRef targ
 		if (error == kAXErrorCannotComplete) {
 			if (parent)
 				CFRelease(parent);
-			return incompleteStatus(deadline);
+			return incompleteStatus(deadline, bound);
 		}
 
 		if (error != kAXErrorSuccess || !parent) {
@@ -1040,7 +1061,8 @@ NeruResolveStatus NeruResolveElement(void *element, double budgetSeconds, CGRect
 		if (!attrArray)
 			return NeruResolveFailed;
 
-		if (!boundNextRead(axElement, deadline)) {
+		NeruReadBound frameBound = boundNextRead(axElement, deadline);
+		if (frameBound == NeruReadExpired) {
 			CFRelease(attrArray);
 			return NeruResolveTimedOut;
 		}
@@ -1056,7 +1078,7 @@ NeruResolveStatus NeruResolveElement(void *element, double budgetSeconds, CGRect
 				CFRelease(values);
 			if (err == kAXErrorInvalidUIElement)
 				return NeruResolveGone;
-			return err == kAXErrorCannotComplete ? incompleteStatus(deadline) : NeruResolveFailed;
+			return err == kAXErrorCannotComplete ? incompleteStatus(deadline, frameBound) : NeruResolveFailed;
 		}
 
 		CGPoint position = CGPointZero;
@@ -1091,7 +1113,8 @@ NeruResolveStatus NeruResolveElement(void *element, double budgetSeconds, CGRect
 		if (!app)
 			return NeruResolveFailed;
 
-		if (!boundNextRead(app, deadline)) {
+		NeruReadBound hitBound = boundNextRead(app, deadline);
+		if (hitBound == NeruReadExpired) {
 			CFRelease(app);
 			return NeruResolveTimedOut;
 		}
@@ -1107,7 +1130,7 @@ NeruResolveStatus NeruResolveElement(void *element, double budgetSeconds, CGRect
 				CFRelease(hit);
 			if (hitErr == kAXErrorNoValue || hitErr == kAXErrorSuccess)
 				return NeruResolveNotHit;
-			return hitErr == kAXErrorCannotComplete ? incompleteStatus(deadline) : NeruResolveFailed;
+			return hitErr == kAXErrorCannotComplete ? incompleteStatus(deadline, hitBound) : NeruResolveFailed;
 		}
 
 		NeruResolveStatus status = resolveAncestry(hit, axElement, deadline);

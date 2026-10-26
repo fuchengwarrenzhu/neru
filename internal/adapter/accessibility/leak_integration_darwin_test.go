@@ -218,9 +218,18 @@ func TestLeaseClickableElements_ReleasesEveryElement(t *testing.T) {
 			}
 		}
 
-		if len(held) == 0 {
+		if len(elements) == 0 {
 			lease.Release()
 			t.Skip("the focused window yielded no element to lease")
+		}
+
+		// The filter turns every supplementary surface off, so each element
+		// came from the window walk and must be held; one that is not was
+		// released before it could be retained.
+		if len(held) != len(elements) {
+			lease.Release()
+			t.Fatalf("walk %d: the lease holds %d of the %d window elements, want all",
+				walk, len(held), len(elements))
 		}
 
 		if live, want := nativedarwin.LiveElementCount(), baseline+int64(len(held)); live != want {

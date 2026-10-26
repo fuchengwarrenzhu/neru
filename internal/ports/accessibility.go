@@ -111,7 +111,8 @@ type ElementLeaser interface {
 }
 
 // ElementLease holds the platform references of the elements one leased scan
-// returned. It has one owner, which releases it once it is done with them.
+// returned. It has one owner, which releases it once it is done with them, and
+// whose Resolve calls do not overlap.
 type ElementLease interface {
 	// Holds reports whether the lease holds a reference for elem. It answers
 	// from what the lease holds and asks the platform nothing.
