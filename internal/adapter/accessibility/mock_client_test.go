@@ -4,8 +4,11 @@ import (
 	"context"
 	"image"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/y3owk1n/neru/internal/adapter/accessibility/ax"
+	"github.com/y3owk1n/neru/internal/derrors"
 	"github.com/y3owk1n/neru/internal/domain/action"
 )
 
@@ -25,6 +28,17 @@ type MockAXClient struct {
 
 	MockClickableNodes    []ax.Node
 	MockClickableNodesErr error
+	// MockWindowNodes, when it has the root ClickableNodes is asked about,
+	// answers for that window instead of MockClickableNodes.
+	MockWindowNodes map[ax.Element][]ax.Node
+
+	// MockApps, when set, is every application ApplicationByBundleID can find.
+	MockApps map[string]ax.App
+	// MockAppWindows and MockAppFocusedWindow are what ax.AppWindowClient
+	// reports for whichever application it is handed.
+	MockAppWindows       []ax.Window
+	MockAppWindowsErr    error
+	MockAppFocusedWindow ax.Window
 
 	MockMenuBarNodes    []ax.Node
 	MockMenuBarNodesErr error
@@ -81,15 +95,42 @@ func (m *MockAXClient) FocusedApplication(_ context.Context) (ax.App, error) {
 	return m.MockFocusedApp, m.MockFocusedAppErr
 }
 
-// ApplicationByBundleID returns the configured application by bundle ID or error.
-func (m *MockAXClient) ApplicationByBundleID(_ context.Context, _ string) (ax.App, error) {
+// ApplicationByBundleID returns the application in MockApps, or the focused
+// application when MockApps is not set.
+func (m *MockAXClient) ApplicationByBundleID(_ context.Context, bundleID string) (ax.App, error) {
+	if m.MockApps != nil {
+		app, ok := m.MockApps[bundleID]
+		if !ok {
+			return nil, derrors.New(derrors.CodeAccessibilityFailed, "application not found")
+		}
+
+		return app, nil
+	}
+
 	return m.MockFocusedApp, m.MockFocusedAppErr // Reuse focused app for simplicity or add specific field
+}
+
+// FocusedAndPopoverWindowsOf returns the configured application windows.
+func (m *MockAXClient) FocusedAndPopoverWindowsOf(
+	_ context.Context,
+	_ ax.App,
+) ([]ax.Window, error) {
+	return m.MockAppWindows, m.MockAppWindowsErr
+}
+
+// FocusedWindowOf returns the configured focused application window.
+func (m *MockAXClient) FocusedWindowOf(_ context.Context, _ ax.App) (ax.Window, error) {
+	if m.MockAppFocusedWindow == nil {
+		return nil, derrors.New(derrors.CodeAccessibilityFailed, "failed to get focused window")
+	}
+
+	return m.MockAppFocusedWindow, nil
 }
 
 // ClickableNodes returns the configured clickable nodes or error.
 func (m *MockAXClient) ClickableNodes(
 	_ context.Context,
-	_ ax.Element,
+	root ax.Element,
 	roles []string,
 	_ int,
 	_ bool,
@@ -98,6 +139,10 @@ func (m *MockAXClient) ClickableNodes(
 	m.LastClickableNodesRoles = roles
 	m.ClickableNodesRolesHistory = append(m.ClickableNodesRolesHistory, roles)
 	m.mu.Unlock()
+
+	if nodes, ok := m.MockWindowNodes[root]; ok {
+		return nodes, nil
+	}
 
 	return m.MockClickableNodes, m.MockClickableNodesErr
 }
@@ -243,6 +288,9 @@ type MockNode struct {
 	MockFocused     bool
 	MockIdentifier  string
 	MockClickable   bool
+	// MockHandles records the handles Retain hands out; a node without one
+	// cannot be retained.
+	MockHandles *MockHandles
 }
 
 // ID returns the configured ID.
@@ -297,3 +345,68 @@ func (n *MockNode) IsClickable() bool {
 
 // Release is a no-op for mock nodes.
 func (n *MockNode) Release() {}
+
+// Retain hands out a handle recorded in MockHandles (ax.RetainableNode).
+func (n *MockNode) Retain() (ax.Handle, error) {
+	if n.MockHandles == nil {
+		return nil, derrors.New(derrors.CodeAccessibilityFailed, "node cannot be retained")
+	}
+
+	return n.MockHandles.retain(n), nil
+}
+
+// MockHandles records every handle MockNode.Retain hands out.
+type MockHandles struct {
+	// ResolveFunc, when set, answers every handle's Resolve; otherwise a
+	// handle resolves to the bounds of the node it was retained from.
+	ResolveFunc func(node *MockNode, budget time.Duration) (image.Rectangle, error)
+
+	mu      sync.Mutex
+	handles []*MockHandle
+}
+
+// Handles returns every handle handed out so far, in order.
+func (h *MockHandles) Handles() []*MockHandle {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	return append([]*MockHandle(nil), h.handles...)
+}
+
+func (h *MockHandles) retain(node *MockNode) *MockHandle {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	handle := &MockHandle{Node: node, resolve: h.ResolveFunc}
+	h.handles = append(h.handles, handle)
+
+	return handle
+}
+
+// MockHandle is a retained mock reference that counts its releases.
+type MockHandle struct {
+	// Node is the node the handle was retained from.
+	Node *MockNode
+
+	resolve  func(node *MockNode, budget time.Duration) (image.Rectangle, error)
+	releases atomic.Int32
+}
+
+// Resolve answers through MockHandles.ResolveFunc, or with the node's bounds.
+func (h *MockHandle) Resolve(budget time.Duration) (image.Rectangle, error) {
+	if h.resolve != nil {
+		return h.resolve(h.Node, budget)
+	}
+
+	return h.Node.MockBounds, nil
+}
+
+// Release counts the release.
+func (h *MockHandle) Release() {
+	h.releases.Add(1)
+}
+
+// Releases reports how many times Release was called.
+func (h *MockHandle) Releases() int {
+	return int(h.releases.Load())
+}

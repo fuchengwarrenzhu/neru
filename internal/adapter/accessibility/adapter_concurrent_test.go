@@ -42,7 +42,12 @@ func TestProcessClickableNodesConcurrent_CancelledBeforeStart(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	result, _, err := adapter.processClickableNodesConcurrent(ctx, nodes, ports.ElementFilter{})
+	result, _, err := adapter.processClickableNodesConcurrent(
+		ctx,
+		nodes,
+		ports.ElementFilter{},
+		nil,
+	)
 	if err == nil {
 		t.Fatal("expected error from canceled context, got nil")
 	}
@@ -106,7 +111,12 @@ func TestProcessClickableNodesConcurrent_CancelledMidProcessing(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		result, _, err = adapter.processClickableNodesConcurrent(ctx, nodes, ports.ElementFilter{})
+		result, _, err = adapter.processClickableNodesConcurrent(
+			ctx,
+			nodes,
+			ports.ElementFilter{},
+			nil,
+		)
 
 		close(done)
 	}()
@@ -159,7 +169,12 @@ func TestProcessClickableNodesConcurrent_HappyPath(t *testing.T) {
 
 	ctx := context.Background()
 
-	result, _, err := adapter.processClickableNodesConcurrent(ctx, nodes, ports.ElementFilter{})
+	result, _, err := adapter.processClickableNodesConcurrent(
+		ctx,
+		nodes,
+		ports.ElementFilter{},
+		nil,
+	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -187,7 +202,7 @@ func TestProcessClickableNodesConcurrent_BelowThreshold(t *testing.T) {
 
 	ctx := context.Background()
 
-	result, err := adapter.processClickableNodes(ctx, nodes, ports.ElementFilter{})
+	result, err := adapter.processClickableNodes(ctx, nodes, ports.ElementFilter{}, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

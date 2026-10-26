@@ -174,15 +174,17 @@ func (s *windowScan) recordFailure(err error) {
 	}
 }
 
-// collectWindowElements reads every window that should be scanned. A failure
+// collectWindowElements reads every window windowsToScan names. A failure
 // goes to the collector rather than being returned, since returning it would
 // fail the collection and discard what the other sources found.
 func (a *Adapter) collectWindowElements(
 	ctx context.Context,
 	filter ports.ElementFilter,
 	collector *elementCollector,
+	windowsToScan func(context.Context) ([]ax.Window, error),
+	lease *elementLease,
 ) ([]*element.Element, error) {
-	windows, windowsErr := a.windowsToScan(ctx)
+	windows, windowsErr := windowsToScan(ctx)
 	if windowsErr != nil {
 		return nil, windowsErr
 	}
@@ -194,7 +196,7 @@ func (a *Adapter) collectWindowElements(
 
 		scan.wait.Add(1)
 
-		go a.scanWindow(ctx, filter, scan, window)
+		go a.scanWindow(ctx, filter, scan, window, lease)
 	}
 
 	scan.wait.Wait()
@@ -232,6 +234,7 @@ func (a *Adapter) scanWindow(
 	filter ports.ElementFilter,
 	scan *windowScan,
 	window ax.Window,
+	lease *elementLease,
 ) {
 	defer scan.wait.Done()
 	defer func() { <-scan.sem }()
@@ -246,7 +249,7 @@ func (a *Adapter) scanWindow(
 		return
 	}
 
-	elements, processErr := a.processClickableNodes(ctx, nodes, filter)
+	elements, processErr := a.processClickableNodes(ctx, nodes, filter, lease)
 	if processErr != nil {
 		a.logger.Warn("Failed to process clickable nodes from window", zap.Error(processErr))
 		scan.recordFailure(processErr)
