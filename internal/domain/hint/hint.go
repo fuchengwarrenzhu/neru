@@ -76,6 +76,23 @@ func (h *Interface) WithMatchedPrefix(prefix string) *Interface {
 	}
 }
 
+// WithBounds returns the hint for its element read again at bounds: the same
+// label, placed at the new center as the generator places every hint.
+func (h *Interface) WithBounds(bounds image.Rectangle) (*Interface, error) {
+	moved, err := h.element.WithBounds(bounds)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Interface{
+		label:         h.label,
+		labelUpper:    h.labelUpper,
+		element:       moved,
+		position:      moved.Center(),
+		matchedPrefix: h.matchedPrefix,
+	}, nil
+}
+
 // Bounds returns the bounding rectangle for the hint.
 func (h *Interface) Bounds() image.Rectangle {
 	return h.element.Bounds()

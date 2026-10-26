@@ -3,6 +3,7 @@ package modes
 import (
 	"context"
 	"image"
+	"maps"
 	"slices"
 	"strings"
 	"sync"
@@ -22,6 +23,7 @@ import (
 	"github.com/y3owk1n/neru/internal/domain"
 	"github.com/y3owk1n/neru/internal/domain/element"
 	domainhint "github.com/y3owk1n/neru/internal/domain/hint"
+	"github.com/y3owk1n/neru/internal/domain/modecmd"
 	"github.com/y3owk1n/neru/internal/domain/semantic"
 	"github.com/y3owk1n/neru/internal/domain/state"
 	"github.com/y3owk1n/neru/internal/ports"
@@ -34,6 +36,7 @@ const (
 	semanticQuery      = "open the code menu"
 	semanticWaitBudget = 5 * time.Second
 	semanticAppID      = "com.example.Editor"
+	otherAppID         = "com.example.Mail"
 	// codeTitle is the title of the hint the tests describe.
 	codeTitle = "Code"
 )
@@ -68,6 +71,26 @@ type semanticFixture struct {
 
 	movesMu sync.Mutex
 	moves   []image.Point
+
+	// pageMu guards what the next scan reads and what each scan leased.
+	pageMu sync.Mutex
+	// unheld are the IDs of the elements a scan returns but does not lease,
+	// the way the Dock or the menu bar comes back.
+	unheld map[element.ID]bool
+	// page is what the next scan reads, when it differs from the hints on
+	// screen; nil reads the elements of the hints on screen.
+	page []*element.Element
+	// scanErr fails the next scan.
+	scanErr error
+	// resolve says where a leased element is read again; nil reads it where
+	// it was scanned.
+	resolve func(*element.Element) (image.Rectangle, error)
+	// gate, when set, holds every scan until the test sends on it, after
+	// announcing it on scanning.
+	gate     chan struct{}
+	scanning chan struct{}
+	leases   []*portmocks.MockElementLease
+	scans    []string
 }
 
 func semanticElement(t *testing.T, id, title string, bounds image.Rectangle) *element.Element {
@@ -105,10 +128,24 @@ func newSemanticFixture(t *testing.T, field bool) *semanticFixture {
 				return image.Rect(400, 740, 600, 780)
 			},
 		},
-		field:   &portmocks.MockTextInputPort{Started: field},
-		logs:    logs,
-		asked:   make(chan struct{}, 8),
-		answers: make(chan selectorAnswer),
+		field:    &portmocks.MockTextInputPort{Started: field},
+		logs:     logs,
+		asked:    make(chan struct{}, 8),
+		answers:  make(chan selectorAnswer),
+		unheld:   map[element.ID]bool{},
+		scanning: make(chan struct{}, 8),
+	}
+
+	generator, generatorErr := domainhint.NewAlphabetGenerator(
+		"asdf",
+		domainhint.LabelDirectionNormal,
+	)
+	if generatorErr != nil {
+		t.Fatalf("NewAlphabetGenerator() error = %v", generatorErr)
+	}
+
+	accessibility := &portmocks.MockAccessibilityPort{
+		LeaseClickableElementsFunc: fixture.leaseScan,
 	}
 
 	fixture.selector = &portmocks.MockTargetSelector{
@@ -147,6 +184,16 @@ func newSemanticFixture(t *testing.T, field bool) *semanticFixture {
 		textInput:             fixture.field,
 		targetSelector:        fixture.selector,
 		targetSelectionBudget: semanticWaitBudget,
+		focusedApp:            &focusedAppCell{},
+		hintService: services.NewHintService(
+			accessibility,
+			fixture.overlay,
+			&portmocks.MockSystemPort{},
+			generator,
+			config.DefaultConfig().Hints,
+			zap.NewNop(),
+			nil,
+		),
 		actionService: services.NewActionService(
 			&portmocks.MockAccessibilityPort{},
 			fixture.overlay,
@@ -192,6 +239,146 @@ func newSemanticFixture(t *testing.T, field bool) *semanticFixture {
 	return fixture
 }
 
+// leaseScan is the accessibility port's leased scan: the elements of the
+// hints the fixture holds now, under a fresh lease.
+func (f *semanticFixture) leaseScan(
+	_ context.Context,
+	app string,
+	_ ports.ElementFilter,
+) ([]*element.Element, ports.ElementLease, error) {
+	f.pageMu.Lock()
+	gate := f.gate
+	f.scans = append(f.scans, app)
+	f.pageMu.Unlock()
+
+	if gate != nil {
+		f.scanning <- struct{}{}
+
+		<-gate
+	}
+
+	f.pageMu.Lock()
+	defer f.pageMu.Unlock()
+
+	if f.scanErr != nil {
+		return nil, nil, f.scanErr
+	}
+
+	elements := f.page
+	if elements == nil {
+		elements = make([]*element.Element, 0, len(f.hints))
+		for _, hint := range f.hints {
+			elements = append(elements, hint.Element())
+		}
+	}
+
+	unheld := maps.Clone(f.unheld)
+	resolve := f.resolve
+
+	lease := &portmocks.MockElementLease{
+		HoldsFunc: func(elem *element.Element) bool { return !unheld[elem.ID()] },
+	}
+	if resolve != nil {
+		lease.ResolveFunc = func(_ context.Context, elem *element.Element) (image.Rectangle, error) {
+			return resolve(elem)
+		}
+	}
+
+	f.leases = append(f.leases, lease)
+
+	return elements, lease, nil
+}
+
+// changePage makes what the next scan reads differ from the hints on screen,
+// as a dialog that opened after they were read does.
+func (f *semanticFixture) changePage(page ...*element.Element) {
+	f.pageMu.Lock()
+	defer f.pageMu.Unlock()
+
+	f.page = page
+	if f.page == nil {
+		f.page = []*element.Element{}
+	}
+}
+
+// scannedApps is the application each scan was asked to read.
+func (f *semanticFixture) scannedApps() []string {
+	f.pageMu.Lock()
+	defer f.pageMu.Unlock()
+
+	return slices.Clone(f.scans)
+}
+
+// holdScans makes every scan from now on wait for releaseScan.
+func (f *semanticFixture) holdScans(t *testing.T) {
+	t.Helper()
+
+	f.pageMu.Lock()
+	f.gate = make(chan struct{})
+	f.pageMu.Unlock()
+
+	t.Cleanup(func() { close(f.gate) })
+}
+
+// waitForScan waits until a held scan has started.
+func (f *semanticFixture) waitForScan(t *testing.T) {
+	t.Helper()
+
+	select {
+	case <-f.scanning:
+	case <-time.After(semanticWaitBudget):
+		t.Fatal("Return did not start a scan")
+	}
+}
+
+// releaseScan lets one held scan finish.
+func (f *semanticFixture) releaseScan(t *testing.T) {
+	t.Helper()
+
+	select {
+	case f.gate <- struct{}{}:
+	case <-time.After(semanticWaitBudget):
+		t.Fatal("no scan was waiting to finish")
+	}
+}
+
+// pressReturn submits without waiting for the selector, for a Return that
+// may never reach it.
+func (f *semanticFixture) pressReturn() {
+	if f.field.Started {
+		f.field.EmitConfirm()
+
+		return
+	}
+
+	f.press(config.KeyNameReturn)
+}
+
+// waitForReleases waits until every lease a scan took has been released once.
+func (f *semanticFixture) waitForReleases(t *testing.T) {
+	t.Helper()
+
+	deadline := time.Now().Add(semanticWaitBudget)
+
+	for time.Now().Before(deadline) {
+		f.pageMu.Lock()
+
+		released := len(f.leases) > 0
+		for _, lease := range f.leases {
+			released = released && lease.Releases() == 1
+		}
+		f.pageMu.Unlock()
+
+		if released {
+			return
+		}
+
+		time.Sleep(time.Millisecond)
+	}
+
+	t.Fatal("a scan's lease was not released exactly once")
+}
+
 // locked runs fn holding the handler's lock, the way every entry point does.
 func (f *semanticFixture) locked(fn func(h *handlerState)) {
 	f.handler.mu.Lock()
@@ -227,11 +414,7 @@ func (f *semanticFixture) press(key string) {
 func (f *semanticFixture) submit(t *testing.T) {
 	t.Helper()
 
-	if f.field.Started {
-		f.field.EmitConfirm()
-	} else {
-		f.press(config.KeyNameReturn)
-	}
+	f.pressReturn()
 
 	select {
 	case <-f.asked:
@@ -475,7 +658,7 @@ func TestHandler_ApplySemanticSelection_MatchSelectsThroughTheConfirmPath(t *tes
 		}
 
 		visible := ctx.Hints().All()
-		if len(visible) != 1 || visible[0] != fixture.hints[1] {
+		if len(visible) != 1 || visible[0].Element().ID() != fixture.hints[1].Element().ID() {
 			t.Errorf("visible hints = %d, want only the chosen one", len(visible))
 		}
 	})
@@ -535,6 +718,15 @@ func TestHandler_ApplySemanticSelection_DropsAStaleAnswer(t *testing.T) {
 				t.Helper()
 
 				fixture.field.EmitCancel()
+			},
+		},
+		{
+			name:   "another app took the focus",
+			reason: staleFocusMoved,
+			change: func(t *testing.T, fixture *semanticFixture) {
+				t.Helper()
+
+				fixture.handler.PublishFocusedApp(otherAppID)
 			},
 		},
 	}
@@ -763,7 +955,9 @@ func (f *semanticFixture) replaceHints(t *testing.T, hints []*domainhint.Interfa
 		}
 	})
 
+	f.pageMu.Lock()
 	f.hints = hints
+	f.pageMu.Unlock()
 }
 
 func TestSemanticCandidates_KeepsAWindowOrPageTitleOffTheMachine(t *testing.T) {
@@ -839,23 +1033,82 @@ func TestSemanticCandidates_LeavesOutHintsReadOffTheScreen(t *testing.T) {
 	}
 }
 
-func TestHandler_SubmitSemanticSearch_SendsNothingForVisionHints(t *testing.T) {
-	fixture := newSemanticFixture(t, true)
+// TestHandler_SubmitSemanticSearch_RefusesWhatItCannotConfirm pins the
+// sessions Return does not scan: nothing they hold can be read again before a
+// click, so nothing is sent and the search says why.
+func TestHandler_SubmitSemanticSearch_RefusesWhatItCannotConfirm(t *testing.T) {
+	tests := []struct {
+		name    string
+		session func(t *testing.T, fixture *semanticFixture)
+		status  string
+	}{
+		{
+			name: "every hint read off the screen",
+			session: func(t *testing.T, fixture *semanticFixture) {
+				t.Helper()
 
-	fixture.replaceHints(t, []*domainhint.Interface{
-		mustNewModeHint("A", visionElement(t, "ocr-1", "Inbox", image.Rect(10, 10, 90, 40))),
-		mustNewModeHint("S", visionElement(t, "ocr-2", "Archive", image.Rect(110, 10, 190, 40))),
-	})
-
-	fixture.typeQuery(semanticQuery)
-	fixture.field.EmitConfirm()
-
-	if asked := len(fixture.selector.Queries()); asked != 0 {
-		t.Fatalf("selector asked %d times about hints read off the screen, want 0", asked)
+				fixture.replaceHints(t, []*domainhint.Interface{
+					mustNewModeHint(
+						"A",
+						visionElement(t, "ocr-1", "Inbox", image.Rect(10, 10, 90, 40)),
+					),
+					mustNewModeHint(
+						"S",
+						visionElement(t, "ocr-2", "Archive", image.Rect(110, 10, 190, 40)),
+					),
+				})
+			},
+			status: semanticStatusVisionOnly,
+		},
+		{
+			name: "a session scanned off the screen",
+			session: func(_ *testing.T, fixture *semanticFixture) {
+				fixture.locked(func(h *handlerState) {
+					h.hints.Context.SetActiveScan(domain.StrategyVision, domain.CaptureScopeWindow)
+				})
+			},
+			status: semanticStatusVisionOnly,
+		},
+		{
+			name: "supplied targets",
+			session: func(_ *testing.T, fixture *semanticFixture) {
+				fixture.locked(func(h *handlerState) {
+					h.hints.Context.SetTargets(
+						[]modecmd.Target{{X: 10, Y: 10, Width: 80, Height: 30}},
+					)
+				})
+			},
+			status: semanticStatusTargetsOnly,
+		},
+		{
+			name: "no application recorded at activation",
+			session: func(_ *testing.T, fixture *semanticFixture) {
+				fixture.locked(func(h *handlerState) { h.hints.Context.SetScannedApp("") })
+			},
+			status: semanticStatusScanFailed,
+		},
 	}
 
-	if got := fixture.status(); got != semanticStatusVisionOnly {
-		t.Errorf("status = %q, want %q", got, semanticStatusVisionOnly)
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			fixture := newSemanticFixture(t, true)
+			testCase.session(t, fixture)
+
+			fixture.typeQuery(semanticQuery)
+			fixture.pressReturn()
+
+			if scans := fixture.scannedApps(); len(scans) != 0 {
+				t.Errorf("Return scanned %d times, want none", len(scans))
+			}
+
+			if asked := len(fixture.selector.Queries()); asked != 0 {
+				t.Errorf("selector asked %d times, want 0", asked)
+			}
+
+			if got := fixture.status(); got != testCase.status {
+				t.Errorf("status = %q, want %q", got, testCase.status)
+			}
+		})
 	}
 }
 
@@ -973,5 +1226,327 @@ func TestHandler_ApplySemanticSelection_ClearsThePendingStatusItDrops(t *testing
 
 	if moves := fixture.recordedMoves(); len(moves) != 0 {
 		t.Errorf("a dropped answer moved the cursor to %v", moves)
+	}
+}
+
+// TestHandler_SubmitSemanticSearch_AsksAboutAFreshScanOfTheSessionApp pins
+// what Return asks about: the application the session was activated over, read
+// again, so a dialog that opened after the hints were drawn is what is offered
+// and what is outlined. Elements the scan could not lease are drawn but never
+// offered.
+func TestHandler_SubmitSemanticSearch_AsksAboutAFreshScanOfTheSessionApp(t *testing.T) {
+	fixture := newSemanticFixture(t, true)
+
+	cancel := semanticElement(t, "dialog-cancel", "Cancel", image.Rect(300, 300, 380, 330))
+	create := semanticElement(t, "dialog-create", "Create key", image.Rect(400, 300, 520, 330))
+	dock := semanticElement(t, "dock-mail", "Mail", image.Rect(500, 760, 540, 790))
+
+	fixture.pageMu.Lock()
+	fixture.unheld[dock.ID()] = true
+	fixture.pageMu.Unlock()
+	fixture.changePage(cancel, create, dock)
+
+	fixture.typeQuery(semanticQuery)
+	fixture.submit(t)
+
+	if scans := fixture.scannedApps(); len(scans) != 1 || scans[0] != semanticAppID {
+		t.Errorf("scanned %q, want the session's application %q once", scans, semanticAppID)
+	}
+
+	candidates := fixture.selector.Candidates()[0]
+
+	titles := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		titles = append(titles, candidate.Title)
+	}
+
+	if want := []string{"Cancel", "Create key"}; !slices.Equal(titles, want) {
+		t.Errorf("asked about %q, want the fresh window's leased controls %q", titles, want)
+	}
+
+	fixture.locked(func(h *handlerState) {
+		if got := h.hints.Context.SourceHints().Count(); got != 3 {
+			t.Errorf("hints on screen = %d, want the 3 the scan found", got)
+		}
+	})
+
+	if frame := fixture.lastHintsFrame(t); !frame.LabelsHidden || len(frame.Hints) != 3 {
+		t.Errorf("drew %d hints with labels hidden = %v, want the 3 fresh boundaries",
+			len(frame.Hints), frame.LabelsHidden)
+	}
+
+	fixture.answer(t, selectorAnswer{})
+	fixture.waitForLog(t, "Semantic selection found no single match")
+	fixture.waitForReleases(t)
+}
+
+// TestHandler_SubmitSemanticSearch_DropsAScanOvertakenBeforeAsking pins that
+// whatever the user does while Return's scan runs wins before anything is
+// sent: the scan is dropped and the selector never asked about it.
+func TestHandler_SubmitSemanticSearch_DropsAScanOvertakenBeforeAsking(t *testing.T) {
+	tests := []struct {
+		name   string
+		reason string
+		change func(t *testing.T, fixture *semanticFixture)
+	}{
+		{
+			name:   "retyped",
+			reason: staleSuperseded,
+			change: func(_ *testing.T, fixture *semanticFixture) { fixture.typeQuery("save draft") },
+		},
+		{
+			name:   "Tab to the labels",
+			reason: staleSearchClosed,
+			change: func(t *testing.T, fixture *semanticFixture) {
+				t.Helper()
+
+				if !fixture.field.EmitTab() {
+					t.Fatal("the semantic search registered no Tab handler")
+				}
+			},
+		},
+		{
+			name:   "Escape out of hints",
+			reason: staleModeChanged,
+			change: func(_ *testing.T, fixture *semanticFixture) { fixture.field.EmitCancel() },
+		},
+		{
+			name:   "another app took the focus",
+			reason: staleFocusMoved,
+			change: func(_ *testing.T, fixture *semanticFixture) {
+				fixture.handler.PublishFocusedApp(otherAppID)
+			},
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			fixture := newSemanticFixture(t, true)
+			fixture.holdScans(t)
+
+			fixture.typeQuery(semanticQuery)
+			fixture.pressReturn()
+			fixture.waitForScan(t)
+			testCase.change(t, fixture)
+			fixture.releaseScan(t)
+
+			entry := fixture.waitForLog(t, "Semantic scan dropped")
+			if got := entry.ContextMap()["reason"]; got != testCase.reason {
+				t.Errorf("drop reason = %v, want %q", got, testCase.reason)
+			}
+
+			if asked := len(fixture.selector.Queries()); asked != 0 {
+				t.Errorf("selector asked %d times after the scan was overtaken, want 0", asked)
+			}
+
+			fixture.waitForReleases(t)
+		})
+	}
+}
+
+// TestHandler_SubmitSemanticSearch_ASecondReturnReplacesTheScanInFlight pins
+// that pressing Return again while the first scan runs asks once, about the
+// second.
+func TestHandler_SubmitSemanticSearch_ASecondReturnReplacesTheScanInFlight(t *testing.T) {
+	fixture := newSemanticFixture(t, true)
+	fixture.holdScans(t)
+
+	fixture.typeQuery(semanticQuery)
+	fixture.pressReturn()
+	fixture.waitForScan(t)
+
+	fixture.pressReturn()
+	fixture.waitForScan(t)
+
+	fixture.releaseScan(t)
+	fixture.releaseScan(t)
+
+	select {
+	case <-fixture.asked:
+	case <-time.After(semanticWaitBudget):
+		t.Fatal("the second Return did not ask the selector")
+	}
+
+	entry := fixture.waitForLog(t, "Semantic scan dropped")
+	if got := entry.ContextMap()["reason"]; got != staleSuperseded {
+		t.Errorf("drop reason = %v, want %q", got, staleSuperseded)
+	}
+
+	if asked := len(fixture.selector.Queries()); asked != 1 {
+		t.Errorf("selector asked %d times, want once for the second Return", asked)
+	}
+
+	fixture.answer(t, selectorAnswer{})
+	fixture.waitForLog(t, "Semantic selection found no single match")
+	fixture.waitForReleases(t)
+}
+
+// TestHandler_ApplySemanticScan_KeepsTheSearchWhenThereIsNothingToAsk pins
+// the scans that leave nothing to offer: the search stays open with its
+// query, the hints on screen stay as they were, and the box says why.
+// Nothing is asked about the old hints instead.
+func TestHandler_ApplySemanticScan_KeepsTheSearchWhenThereIsNothingToAsk(t *testing.T) {
+	tests := []struct {
+		name   string
+		page   func(t *testing.T, fixture *semanticFixture)
+		status string
+		log    string
+	}{
+		{
+			name: "the scan failed",
+			page: func(_ *testing.T, fixture *semanticFixture) {
+				fixture.pageMu.Lock()
+				fixture.scanErr = derrors.New(derrors.CodeAccessibilityFailed, "window gone")
+				fixture.pageMu.Unlock()
+			},
+			status: semanticStatusScanFailed,
+			log:    "Semantic scan failed",
+		},
+		{
+			name:   "the window is empty",
+			page:   func(_ *testing.T, fixture *semanticFixture) { fixture.changePage() },
+			status: semanticStatusNothing,
+			log:    "Semantic scan found nothing to select",
+		},
+		{
+			name: "nothing the scan found could be leased",
+			page: func(_ *testing.T, fixture *semanticFixture) {
+				fixture.pageMu.Lock()
+				for _, hint := range fixture.hints {
+					fixture.unheld[hint.Element().ID()] = true
+				}
+				fixture.pageMu.Unlock()
+			},
+			status: semanticStatusNothing,
+			log:    "Semantic scan found nothing to select",
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			fixture := newSemanticFixture(t, true)
+			testCase.page(t, fixture)
+
+			var before *domainhint.Collection
+
+			fixture.locked(func(h *handlerState) { before = h.hints.Context.SourceHints() })
+
+			fixture.typeQuery(semanticQuery)
+			fixture.pressReturn()
+			fixture.waitForLog(t, testCase.log)
+
+			if asked := len(fixture.selector.Queries()); asked != 0 {
+				t.Errorf("selector asked %d times, want 0", asked)
+			}
+
+			if got := fixture.status(); got != testCase.status {
+				t.Errorf("status = %q, want %q", got, testCase.status)
+			}
+
+			fixture.locked(func(h *handlerState) {
+				ctx := h.hints.Context
+				if !ctx.SearchActive() || ctx.SearchQuery() != semanticQuery {
+					t.Errorf("search active = %v with query %q, want it open with %q",
+						ctx.SearchActive(), ctx.SearchQuery(), semanticQuery)
+				}
+
+				if ctx.SourceHints() != before {
+					t.Error("the hints on screen were replaced by a scan that offered nothing")
+				}
+			})
+
+			if stops := fixture.field.StopCount(); stops != 0 {
+				t.Errorf("search field stopped %d times, want it left open", stops)
+			}
+		})
+	}
+}
+
+// TestHandler_ApplySemanticSelection_ClicksTheTargetWhereItIsNow pins the
+// second read: the chosen element is clicked where it was read after the
+// answer, not where the scan found it.
+func TestHandler_ApplySemanticSelection_ClicksTheTargetWhereItIsNow(t *testing.T) {
+	fixture := newSemanticFixture(t, true)
+
+	scanned := fixture.hints[1].Element()
+	settled := scanned.Bounds().Add(image.Pt(40, 6))
+
+	fixture.pageMu.Lock()
+	fixture.resolve = func(elem *element.Element) (image.Rectangle, error) {
+		if elem != scanned {
+			return image.Rectangle{}, derrors.New(derrors.CodeElementNotFound, "not this one")
+		}
+
+		return settled, nil
+	}
+	fixture.pageMu.Unlock()
+
+	fixture.typeQuery(semanticQuery)
+	fixture.submit(t)
+	fixture.answer(t, selectorAnswer{selection: semantic.Selection{Index: 1, Matched: true}})
+	fixture.waitForLog(t, "Semantic selection matched")
+
+	want := image.Pt(settled.Min.X+settled.Dx()/2, settled.Min.Y+settled.Dy()/2)
+	if moves := fixture.recordedMoves(); len(moves) != 1 || moves[0] != want {
+		t.Fatalf("cursor moves = %v, want one to the center it was read at, %v", moves, want)
+	}
+
+	fixture.waitForReleases(t)
+}
+
+// TestHandler_ApplySemanticSelection_LeavesATargetThatChangedUnclicked pins
+// that a chosen element the second read cannot confirm is not clicked where
+// it used to be: the search stays open and says so.
+func TestHandler_ApplySemanticSelection_LeavesATargetThatChangedUnclicked(t *testing.T) {
+	tests := []struct {
+		name    string
+		resolve func(*element.Element) (image.Rectangle, error)
+	}{
+		{
+			name: "gone, hidden or covered",
+			resolve: func(*element.Element) (image.Rectangle, error) {
+				return image.Rectangle{}, derrors.New(derrors.CodeElementNotFound, "covered")
+			},
+		},
+		{
+			name: "moved off the screen",
+			resolve: func(*element.Element) (image.Rectangle, error) {
+				return image.Rect(1200, 900, 1280, 930), nil
+			},
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			fixture := newSemanticFixture(t, true)
+
+			fixture.pageMu.Lock()
+			fixture.resolve = testCase.resolve
+			fixture.pageMu.Unlock()
+
+			fixture.typeQuery(semanticQuery)
+			fixture.submit(t)
+			fixture.answer(
+				t,
+				selectorAnswer{selection: semantic.Selection{Index: 1, Matched: true}},
+			)
+			fixture.waitForLog(t, "Semantic selection named a target that changed")
+
+			if moves := fixture.recordedMoves(); len(moves) != 0 {
+				t.Errorf("cursor moved to %v, want nothing clicked", moves)
+			}
+
+			if got := fixture.status(); got != semanticStatusMoved {
+				t.Errorf("status = %q, want %q", got, semanticStatusMoved)
+			}
+
+			fixture.locked(func(h *handlerState) {
+				if !h.hints.Context.SearchActive() {
+					t.Error("the search closed; a target that changed should leave it open")
+				}
+			})
+
+			fixture.waitForReleases(t)
+		})
 	}
 }

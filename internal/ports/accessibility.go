@@ -119,7 +119,7 @@ type ElementLease interface {
 	// Resolve reads where elem is now. It fails with CodeElementNotFound when
 	// the lease holds no reference for elem, when the element is gone or
 	// hidden, and when the element elem's own application reports at the
-	// centre of the live frame is neither elem nor inside it. It looks at no
+	// center of the live frame is neither elem nor inside it. It looks at no
 	// other application's windows. What it returns is a read, not a
 	// guarantee: the element can move as soon as it has.
 	Resolve(ctx context.Context, elem *element.Element) (image.Rectangle, error)

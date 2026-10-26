@@ -428,7 +428,7 @@ Hide every hint until the search has text. Needs --search.
 
 Takes no value. Modes: `hints`.
 
-Pick the target the search text describes instead of matching it as text: labels hide, outlines stay, and Return sends the text with each target's role, title, description, parent, popup flag and app to api.typesafe.ai, then acts on the one it picks. Tab brings the labels back. Needs --search.
+Pick the target the search text describes instead of matching it as text: labels hide, outlines stay, and Return reads the app's window again, sends the text with each of its targets' role, title, description, parent, popup flag and app to api.typesafe.ai, reads the one it picks again and acts on it there. Tab brings the labels back. Needs --search.
 
 #### `--confirm-on-label`
 

@@ -221,6 +221,19 @@ func (e *Element) Bounds() image.Rectangle {
 	return e.bounds
 }
 
+// WithBounds returns a copy of the element at bounds, for an element read
+// again where it is now. Everything else is what the scan read.
+func (e *Element) WithBounds(bounds image.Rectangle) (*Element, error) {
+	if bounds.Empty() {
+		return nil, derrors.New(derrors.CodeInvalidInput, "element bounds cannot be empty")
+	}
+
+	moved := *e
+	moved.bounds = bounds
+
+	return &moved, nil
+}
+
 // Role returns the element role.
 func (e *Element) Role() Role {
 	return e.role
