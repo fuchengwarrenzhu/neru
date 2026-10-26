@@ -121,8 +121,9 @@ type ElementLease interface {
 	// the lease holds no reference for elem, when the element is gone or
 	// hidden, and when the element elem's own application reports at the
 	// center of the live frame is neither elem nor inside it. It looks at no
-	// other application's windows. What it returns is a read, not a
-	// guarantee: the element can move as soon as it has.
+	// other application's windows. A read its deadline cut short fails with
+	// CodeTimeout. What it returns is a read, not a guarantee: the element
+	// can move as soon as it has.
 	Resolve(ctx context.Context, elem *element.Element) (image.Rectangle, error)
 
 	// Release gives every reference back. A Resolve in progress finishes
