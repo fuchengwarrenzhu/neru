@@ -1,14 +1,20 @@
 package modes
 
 import (
+	"context"
+	"image"
 	"slices"
 	"sync"
 	"testing"
+	"time"
 
 	"go.uber.org/zap"
 
+	"github.com/y3owk1n/neru/internal/app/services"
 	"github.com/y3owk1n/neru/internal/config"
 	"github.com/y3owk1n/neru/internal/domain"
+	domainhint "github.com/y3owk1n/neru/internal/domain/hint"
+	"github.com/y3owk1n/neru/internal/domain/modecmd"
 	"github.com/y3owk1n/neru/internal/domain/state"
 	portmocks "github.com/y3owk1n/neru/internal/ports/mocks"
 )
@@ -124,6 +130,67 @@ func TestHandlePassthroughLocked_SchedulesHintRefreshForMatchingSession(t *testi
 	}
 
 	handler.refreshHintsTimer.Stop()
+}
+
+// A hints search passes a chord through and refreshes in place: the session's
+// own --semantic comes back with it. Semantic is the one flag a refresh does
+// not inherit, so dropping it reopens the session as a plain text search with
+// the labels shown.
+func TestPassthroughTick_RefreshKeepsASemanticSearchSemantic(t *testing.T) {
+	fixture := newSemanticFixture(t, false)
+
+	generator, err := domainhint.NewAlphabetGenerator("asdf", domainhint.LabelDirectionNormal)
+	if err != nil {
+		t.Fatalf("NewAlphabetGenerator() error = %v", err)
+	}
+
+	system := &portmocks.MockSystemPort{
+		ScreenBoundsFunc: func(context.Context) (image.Rectangle, error) {
+			return image.Rect(0, 0, 1000, 800), nil
+		},
+	}
+
+	fixture.locked(func(locked *handlerState) {
+		locked.system = system
+		locked.hintService = services.NewHintService(
+			&portmocks.MockAccessibilityPort{},
+			fixture.overlay,
+			system,
+			generator,
+			locked.config.Hints,
+			zap.NewNop(),
+			nil,
+		)
+		locked.hints.Context.SetStartWithSearch(true)
+		locked.hints.Context.SetTargets([]modecmd.Target{
+			{X: 10, Y: 10, Width: 80, Height: 30, Role: "button", Title: "Save"},
+		})
+		locked.passthroughTick(domain.ModeHints, locked.modeSession)
+	})
+
+	// Past the debounce delay the timer re-activates hints in place.
+	deadline := time.Now().Add(passthroughHintRefreshDelay + semanticWaitBudget)
+	for fixture.logs.FilterMessage("Hints mode activated").Len() == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("the passthrough refresh never re-activated hints")
+		}
+
+		time.Sleep(time.Millisecond)
+	}
+
+	fixture.locked(func(locked *handlerState) {
+		if !locked.hints.Context.Semantic() {
+			t.Error("Semantic() = false after the refresh; want the session's --semantic kept")
+		}
+
+		if !locked.hints.Context.SearchActive() {
+			t.Error("the refresh did not reopen the search")
+		}
+	})
+
+	if frame := fixture.lastHintsFrame(t); !frame.LabelsHidden {
+		t.Error("the refreshed search drew the labels; want boundaries only")
+	}
 }
 
 // The bug in #1252 and the tests that pin it.
