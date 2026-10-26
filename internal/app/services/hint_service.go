@@ -111,6 +111,79 @@ func (s *HintService) ProbeHints(
 		strategyOverride, captureScopeOverride, labelDirectionOverride, splitWord, true)
 }
 
+// LeaseHints is GenerateHints over the windows of app, the application with
+// that identifier, for a caller that acts on a hint some time after the scan:
+// it also returns the lease that can confirm a hint's element is still there
+// then. The caller owns the lease and releases it.
+//
+// It reads the accessibility tree and nothing else. A strategy that reads the
+// screen has no element to lease, so it fails with CodeNotSupported, as does
+// an accessibility backend that cannot lease. Finding nothing is no hints and
+// no lease, and so is a role filter that resolved to nothing.
+func (s *HintService) LeaseHints(
+	ctx context.Context,
+	app string,
+	filterRoles []string,
+	filterTextContains []string,
+	strategyOverride string,
+	labelDirectionOverride string,
+) ([]*hint.Interface, ports.ElementLease, error) {
+	leaser, leases := s.accessibility.(ports.ElementLeaser)
+	if !leases {
+		return nil, nil, derrors.New(derrors.CodeNotSupported,
+			"the accessibility backend cannot lease elements")
+	}
+
+	s.mu.RLock()
+	cfg := s.config
+	s.mu.RUnlock()
+
+	strategy := cfg.StrategyForApp(app)
+	if strategyOverride != "" {
+		strategy = strategyOverride
+	}
+
+	switch strategy {
+	case domain.StrategyVision, domain.StrategyContour, domain.StrategySegment:
+		return nil, nil, derrors.New(derrors.CodeNotSupported,
+			"only elements read from the accessibility tree can be leased")
+	}
+
+	labelDirection := cfg.LabelDirectionForApp(app)
+	if labelDirectionOverride != "" {
+		labelDirection = labelDirectionOverride
+	}
+
+	filter, usable := s.hintFilter(cfg, app, filterRoles, filterTextContains)
+	if !usable {
+		return nil, nil, nil
+	}
+
+	elements, lease, err := leaser.LeaseClickableElements(ctx, app, filter)
+	if err != nil {
+		return nil, nil, derrors.WrapAccessibilityFailed(err, "lease clickable elements")
+	}
+
+	if lease == nil {
+		return nil, nil, derrors.New(derrors.CodeInternal, "the leased scan returned no lease")
+	}
+
+	if len(elements) == 0 {
+		lease.Release()
+
+		return nil, nil, nil
+	}
+
+	hints, labelErr := s.labelElements(ctx, elements, labelDirection)
+	if labelErr != nil {
+		lease.Release()
+
+		return nil, nil, labelErr
+	}
+
+	return hints, lease, nil
+}
+
 // LabelElements labels elements a caller supplied, in place of a scan, with
 // the label direction a scan of bundleID's window would use unless
 // labelDirectionOverride names one.

@@ -937,6 +937,214 @@ int NeruHasClickAction(
 #undef visHit
 }
 
+#pragma mark - Lease Functions
+
+/// Longest any one message of a resolve may wait for an answer (seconds). Each
+/// message waits no longer than what is left of the resolve's budget either.
+static const double kNeruResolveReadTimeout = 0.5;
+
+/// Parent levels a resolve climbs from the hit element looking for its
+/// target, as elementOrAncestorMatches does.
+static const int kNeruResolveMaxAncestors = 16;
+
+/// Monotonic time in nanoseconds.
+static uint64_t resolveNow(void) { return clock_gettime_nsec_np(CLOCK_UPTIME_RAW); }
+
+/// Time left below which a resolve sends nothing more (seconds). A timeout
+/// that small could reach AX as zero, which it reads as "use the default".
+static const double kNeruResolveMinLeft = 0.005;
+
+/// What boundNextRead bounded the next message by.
+typedef enum {
+	NeruReadExpired = 0,  ///< No time left: the message must not be sent
+	NeruReadCapped,       ///< kNeruResolveReadTimeout
+	NeruReadByDeadline,   ///< The time left, which was the shorter
+} NeruReadBound;
+
+/// Bound the next message sent through ref by kNeruResolveReadTimeout or the
+/// time left before deadline, whichever is shorter. The timeout is the ref's
+/// own, so this is only called on a ref no one else is using: the lease's, or
+/// one the resolve created. Nothing process-wide or system-wide changes.
+/// @return What the message is bounded by; NeruReadExpired when it must not be sent
+static NeruReadBound boundNextRead(AXUIElementRef ref, uint64_t deadline) {
+	uint64_t now = resolveNow();
+	if (now >= deadline)
+		return NeruReadExpired;
+
+	double left = (double)(deadline - now) / NSEC_PER_SEC;
+	if (left < kNeruResolveMinLeft)
+		return NeruReadExpired;
+
+	if (left < kNeruResolveReadTimeout) {
+		AXUIElementSetMessagingTimeout(ref, (float)left);
+		return NeruReadByDeadline;
+	}
+
+	AXUIElementSetMessagingTimeout(ref, (float)kNeruResolveReadTimeout);
+	return NeruReadCapped;
+}
+
+/// A message that could not complete ran out of time when it was given only
+/// what was left of the budget, or the deadline has passed; otherwise it went
+/// unanswered.
+static NeruResolveStatus incompleteStatus(uint64_t deadline, NeruReadBound bound) {
+	return bound == NeruReadByDeadline || resolveNow() >= deadline ? NeruResolveTimedOut : NeruResolveFailed;
+}
+
+/// elementOrAncestorMatches for a resolve: the same climb from hit towards
+/// target, with every ref bounded before it is asked for its parent.
+/// @param hit Element the application reported, borrowed
+/// @param target Element being resolved, borrowed
+/// @param deadline When the resolve's budget ends
+static NeruResolveStatus resolveAncestry(AXUIElementRef hit, AXUIElementRef target, uint64_t deadline) {
+	AXUIElementRef current = hit;
+	CFRetain(current);
+
+	for (int depth = 0; depth < kNeruResolveMaxAncestors; depth++) {
+		if (CFEqual(current, target)) {
+			CFRelease(current);
+			return NeruResolveFound;
+		}
+
+		NeruReadBound bound = boundNextRead(current, deadline);
+		if (bound == NeruReadExpired) {
+			CFRelease(current);
+			return NeruResolveTimedOut;
+		}
+
+		AXUIElementRef parent = NULL;
+		AXError error = AXUIElementCopyAttributeValue(current, kAXParentAttribute, (CFTypeRef *)&parent);
+		CFRelease(current);
+
+		if (error == kAXErrorCannotComplete) {
+			if (parent)
+				CFRelease(parent);
+			return incompleteStatus(deadline, bound);
+		}
+
+		if (error != kAXErrorSuccess || !parent) {
+			if (parent)
+				CFRelease(parent);
+			return NeruResolveNotHit;
+		}
+
+		current = parent;
+	}
+
+	CFRelease(current);
+	return NeruResolveNotHit;
+}
+
+/// Read where an element is now, and check that its own application still
+/// reports it there. Other applications are not asked, so a window of theirs
+/// covering the element is not seen.
+/// @param element Element reference, borrowed, and the caller's alone
+/// @param budgetSeconds Time the whole resolve may take
+/// @param outFrame Receives the live frame
+/// @return What was found
+NeruResolveStatus NeruResolveElement(void *element, double budgetSeconds, CGRect *outFrame) {
+	if (!element || !outFrame)
+		return NeruResolveFailed;
+
+	*outFrame = CGRectZero;
+
+	if (!(budgetSeconds > 0))
+		return NeruResolveTimedOut;
+
+	uint64_t deadline = resolveNow() + (uint64_t)(budgetSeconds * NSEC_PER_SEC);
+
+	@autoreleasepool {
+		AXUIElementRef axElement = (AXUIElementRef)element;
+
+		CFTypeRef attrs[] = {kAXPositionAttribute, kAXSizeAttribute, kAXHiddenAttribute};
+		CFArrayRef attrArray = CFArrayCreate(NULL, (const void **)attrs, 3, &kCFTypeArrayCallBacks);
+		if (!attrArray)
+			return NeruResolveFailed;
+
+		NeruReadBound frameBound = boundNextRead(axElement, deadline);
+		if (frameBound == NeruReadExpired) {
+			CFRelease(attrArray);
+			return NeruResolveTimedOut;
+		}
+
+		CFArrayRef values = NULL;
+		AXError err = AXUIElementCopyMultipleAttributeValues(axElement, attrArray, 0, &values);
+		CFRelease(attrArray);
+
+		// The target app builds this reply, so it can be short; reading past
+		// its end would throw.
+		if (err != kAXErrorSuccess || !values || CFArrayGetCount(values) < 3) {
+			if (values)
+				CFRelease(values);
+			if (err == kAXErrorInvalidUIElement)
+				return NeruResolveGone;
+			return err == kAXErrorCannotComplete ? incompleteStatus(deadline, frameBound) : NeruResolveFailed;
+		}
+
+		CGPoint position = CGPointZero;
+		CGSize size = CGSizeZero;
+
+		CFTypeRef posRef = CFArrayGetValueAtIndex(values, 0);
+		bool hasPosition = posRef && CFGetTypeID(posRef) == AXValueGetTypeID() &&
+		                   AXValueGetValue((AXValueRef)posRef, kAXValueCGPointType, &position);
+
+		CFTypeRef sizeRef = CFArrayGetValueAtIndex(values, 1);
+		bool hasSize = sizeRef && CFGetTypeID(sizeRef) == AXValueGetTypeID() &&
+		               AXValueGetValue((AXValueRef)sizeRef, kAXValueCGSizeType, &size);
+
+		CFTypeRef hiddenRef = CFArrayGetValueAtIndex(values, 2);
+		bool hidden =
+		    hiddenRef && CFGetTypeID(hiddenRef) == CFBooleanGetTypeID() && CFBooleanGetValue((CFBooleanRef)hiddenRef);
+
+		CFRelease(values);
+
+		if (!hasPosition || !hasSize || size.width <= 0 || size.height <= 0)
+			return NeruResolveGone;
+
+		if (hidden)
+			return NeruResolveHidden;
+
+		pid_t pid = 0;
+		AXError pidErr = AXUIElementGetPid(axElement, &pid);
+		if (pidErr != kAXErrorSuccess)
+			return pidErr == kAXErrorInvalidUIElement ? NeruResolveGone : NeruResolveFailed;
+
+		AXUIElementRef app = AXUIElementCreateApplication(pid);
+		if (!app)
+			return NeruResolveFailed;
+
+		NeruReadBound hitBound = boundNextRead(app, deadline);
+		if (hitBound == NeruReadExpired) {
+			CFRelease(app);
+			return NeruResolveTimedOut;
+		}
+
+		CGPoint center = CGPointMake(position.x + size.width / 2.0, position.y + size.height / 2.0);
+
+		AXUIElementRef hit = NULL;
+		AXError hitErr = AXUIElementCopyElementAtPosition(app, center.x, center.y, &hit);
+		CFRelease(app);
+
+		if (hitErr != kAXErrorSuccess || !hit) {
+			if (hit)
+				CFRelease(hit);
+			if (hitErr == kAXErrorNoValue || hitErr == kAXErrorSuccess)
+				return NeruResolveNotHit;
+			return hitErr == kAXErrorCannotComplete ? incompleteStatus(deadline, hitBound) : NeruResolveFailed;
+		}
+
+		NeruResolveStatus status = resolveAncestry(hit, axElement, deadline);
+		CFRelease(hit);
+
+		if (status == NeruResolveFound) {
+			outFrame->origin = position;
+			outFrame->size = size;
+		}
+
+		return status;
+	}
+}
+
 #pragma mark - Attribute Functions
 
 /// Get element attribute value

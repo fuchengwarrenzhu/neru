@@ -877,9 +877,38 @@ type simAXPort struct {
 	// prime replaces the platform's tree warmup when a journey sets it. Left
 	// nil, every application reports ready at once.
 	prime func(ctx context.Context, bundleID string) (bool, error)
+
+	// leasedApps is the application each leased scan was asked to read, and
+	// leases what each handed out.
+	leasedApps []string
+	leases     []*mocks.MockElementLease
 }
 
-var _ ports.AccessibilityPort = (*simAXPort)(nil)
+var (
+	_ ports.AccessibilityPort = (*simAXPort)(nil)
+	_ ports.ElementLeaser     = (*simAXPort)(nil)
+)
+
+// LeaseClickableElements serves the fixture elements under a lease that holds
+// each and reads it again where it is (ports.ElementLeaser).
+func (a *simAXPort) LeaseClickableElements(
+	_ context.Context,
+	app string,
+	_ ports.ElementFilter,
+) ([]*element.Element, ports.ElementLease, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	lease := &mocks.MockElementLease{}
+
+	a.leasedApps = append(a.leasedApps, app)
+	a.leases = append(a.leases, lease)
+
+	out := make([]*element.Element, len(a.elements))
+	copy(out, a.elements)
+
+	return out, lease, nil
+}
 
 func (a *simAXPort) Health(_ context.Context) error { return nil }
 
@@ -999,6 +1028,20 @@ func (a *simAXPort) setElements(elements []*element.Element) {
 	defer a.mu.Unlock()
 
 	a.elements = elements
+}
+
+// leasedScans reports the application each leased scan read, and whether
+// every lease handed out has been released once.
+func (a *simAXPort) leasedScans() ([]string, bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	released := true
+	for _, lease := range a.leases {
+		released = released && lease.Releases() == 1
+	}
+
+	return append([]string(nil), a.leasedApps...), released
 }
 
 // setFocusedApp changes which application the fixture desktop reports as

@@ -125,7 +125,7 @@ const (
 	usageCursorSelectionMode = "Whether the real cursor follows the selection (follow) or stays put (hold)"
 	usageSearch              = "Open with the hint search field showing"
 	usageHideOnEmptySearch   = "Hide every hint until the search has text. Needs --search"
-	usageSemantic            = "Pick the target the search text describes instead of matching it as text: labels hide, outlines stay, and Return sends the text with each target's role, title, description, parent, popup flag and app to api.typesafe.ai, then acts on the one it picks. Tab brings the labels back. Needs --search"
+	usageSemantic            = "Pick the target the search text describes instead of matching it as text: labels hide, outlines stay, and Return reads the app's window again, sends the text with each of its targets' role, title, description, parent, popup flag and app to api.typesafe.ai, reads the one it picks again and acts on it there. Tab brings the labels back. Needs --search"
 	usageConfirmOnLabel      = "Confirm the search as soon as a label typed after the search text leaves one match, without Return"
 	usageExitOnUnmatched     = "Exit when a key matches no hint"
 	usageRole                = "Only hint these roles, comma-separated, such as button,link (see 'neru roles'). Repeat to add more"

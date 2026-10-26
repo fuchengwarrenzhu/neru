@@ -76,6 +76,17 @@ func (c *focusedAppCell) published() (string, bool) {
 	return *focusedApp, true
 }
 
+// publication is the last publication itself, nil when nothing has published.
+// Every publish stores a new one, so two reads that differ say the focus
+// moved in between, even when it came back to the same application.
+func (c *focusedAppCell) publication() *string {
+	if c == nil {
+		return nil
+	}
+
+	return c.identifier.Load()
+}
+
 // PublishFocusedApp tells the handler which application the operating system
 // now routes keystrokes to, so the keymap can be settled against it without
 // anything asking the platform on a keystroke.

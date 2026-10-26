@@ -3,6 +3,7 @@ package ax
 import (
 	"context"
 	"image"
+	"time"
 
 	"github.com/y3owk1n/neru/internal/domain/action"
 )
@@ -76,6 +77,16 @@ type Client interface {
 	Close() error
 }
 
+// AppWindowClient is a Client that reads the windows of an application it is
+// handed, rather than of whichever one is focused. Only the macOS client is
+// one.
+type AppWindowClient interface {
+	// FocusedAndPopoverWindowsOf is FrontmostAndPopoverWindows for app.
+	FocusedAndPopoverWindowsOf(ctx context.Context, app App) ([]Window, error)
+	// FocusedWindowOf is FrontmostWindow for app.
+	FocusedWindowOf(ctx context.Context, app App) (Window, error)
+}
+
 // AppInfo contains information about an application.
 type AppInfo struct {
 	Role  string
@@ -101,4 +112,23 @@ type Node interface {
 	Identifier() string
 	IsClickable() bool
 	Release()
+}
+
+// RetainableNode is a Node whose platform reference can outlive the node's
+// own Release, for an element lease. A node that is not one is never leased.
+type RetainableNode interface {
+	// Retain returns a second reference to the node's element. It must come
+	// before the node's Release.
+	Retain() (Handle, error)
+}
+
+// Handle is a retained platform reference to one element, which a lease reads
+// again long after the scan that found it.
+type Handle interface {
+	Element
+	// Resolve reads the element's live frame and checks that its own
+	// application still reports it at the frame's center
+	// (ports.ElementLease.Resolve), giving up with CodeTimeout once budget
+	// has run out.
+	Resolve(budget time.Duration) (image.Rectangle, error)
 }

@@ -208,6 +208,28 @@ unsigned long NeruGetElementHash(void *element);
 /// @return 1 if equal, 0 otherwise
 int NeruAreElementsEqual(void *element1, void *element2);
 
+#pragma mark - Lease Functions
+
+/// What NeruResolveElement found
+typedef enum {
+	NeruResolveFound = 0,     ///< The element is at outFrame, and its own application reports it at the center
+	NeruResolveGone = 1,      ///< The element no longer exists, its frame cannot be read, or it has no size
+	NeruResolveHidden = 2,    ///< The element reports itself hidden
+	NeruResolveNotHit = 3,    ///< Its application reports something else, or nothing, at the frame's center
+	NeruResolveFailed = 4,    ///< The element or its application did not answer
+	NeruResolveTimedOut = 5,  ///< The budget ran out before the answer was complete
+} NeruResolveStatus;
+
+/// Read where an element is now, and check that its own application still reports it there
+/// @param element Element reference, borrowed; it must be the caller's alone, since each read
+///        sets its messaging timeout and that timeout belongs to the reference
+/// @param budgetSeconds Time the whole resolve may take; no message waits longer than what is left
+/// @param outFrame Receives the live frame in global coordinates (top-left origin, Y down)
+/// @return What was found
+/// @note The hit test asks the element's own application, never the system-wide element, so a
+///       window of another application covering the element is not seen.
+NeruResolveStatus NeruResolveElement(void *element, double budgetSeconds, CGRect *outFrame);
+
 #pragma mark - Window Functions
 
 /// Get all windows of focused application
@@ -220,9 +242,21 @@ void **NeruGetAllWindows(int *count);
 /// @return Array of retained window references. Caller frees the array and releases refs.
 void **NeruGetFrontmostAndPopoverWindows(int *count);
 
+/// Get the focused window plus AXPopover windows of one application, whether or not it is focused
+/// @param app Application reference, borrowed
+/// @param count Output parameter for number of returned windows
+/// @return Array of retained window references. Caller frees the array and releases refs.
+void **NeruGetApplicationFocusedAndPopoverWindows(void *app, int *count);
+
 /// Get frontmost window
 /// @return Frontmost window reference
 void *NeruGetFrontmostWindow(void);
+
+/// Get the focused window of one application, whether or not it is focused, or its first window
+/// when none is focused
+/// @param app Application reference, borrowed
+/// @return Window reference
+void *NeruGetApplicationFocusedWindow(void *app);
 
 /// Get the frame (position + size) of the focused window
 /// @return Window frame rectangle, or CGRectZero if no window is found

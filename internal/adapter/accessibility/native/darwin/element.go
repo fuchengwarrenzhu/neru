@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 	"unsafe"
 
 	"go.uber.org/zap"
@@ -531,6 +532,56 @@ func (e *Element) Clone() (*Element, error) {
 	return newElement(e.ref), nil
 }
 
+// Resolve reads where the element is now, and checks that its own application
+// still reports it, or something inside it, at the center of that frame. It
+// fails with CodeElementNotFound when the element is gone, hidden, or not what
+// its application reports there, with CodeAccessibilityFailed when the
+// element or its application does not answer, and with CodeTimeout when
+// budget runs out first. No other application is asked, so a window of one
+// covering the element is not seen.
+//
+// Every message it sends waits at most the shorter of half a second and what
+// is left of budget, so it returns about when budget ends; nothing from Go can
+// interrupt it sooner. Each read bounds the element's own AXUIElementRef, so
+// only the reference's one holder may call it: a lease, whose clone is the
+// last reference to a walked element once the walk releases its node, since
+// AX hands out a new reference for every copy of an element.
+func (e *Element) Resolve(budget time.Duration) (image.Rectangle, error) {
+	if e.ref == nil {
+		return image.Rectangle{}, derrors.New(derrors.CodeElementNotFound, "element is released")
+	}
+
+	var frame C.CGRect
+
+	switch C.NeruResolveElement(e.ref, C.double(budget.Seconds()), &frame) {
+	case C.NeruResolveFound:
+		// Truncated as Info truncates, so an element that has not moved
+		// resolves to exactly the bounds it was scanned with.
+		x, y := int(frame.origin.x), int(frame.origin.y)
+
+		return image.Rect(x, y, x+int(frame.size.width), y+int(frame.size.height)), nil
+	case C.NeruResolveGone:
+		return image.Rectangle{}, derrors.New(derrors.CodeElementNotFound, "element is gone")
+	case C.NeruResolveHidden:
+		return image.Rectangle{}, derrors.New(derrors.CodeElementNotFound, "element is hidden")
+	case C.NeruResolveNotHit:
+		return image.Rectangle{}, derrors.New(
+			derrors.CodeElementNotFound,
+			"element is not what its application reports at its center",
+		)
+	case C.NeruResolveTimedOut:
+		return image.Rectangle{}, derrors.New(
+			derrors.CodeTimeout,
+			"element resolve ran out of time",
+		)
+	default:
+		return image.Rectangle{}, derrors.New(
+			derrors.CodeAccessibilityFailed,
+			"element or its application did not answer",
+		)
+	}
+}
+
 // AllWindows returns all windows of the focused application.
 func AllWindows() ([]*Element, error) {
 	var count C.int
@@ -559,13 +610,31 @@ func AllWindows() ([]*Element, error) {
 // popover windows in a single native query.
 func FrontmostAndPopoverWindows() ([]*Element, error) {
 	var count C.int
-	windows := C.NeruGetFrontmostAndPopoverWindows(&count)
+
+	return adoptWindows(C.NeruGetFrontmostAndPopoverWindows(&count), count), nil
+}
+
+// FocusedAndPopoverWindows is FrontmostAndPopoverWindows for this application
+// element, whether or not it is the focused application.
+func (e *Element) FocusedAndPopoverWindows() ([]*Element, error) {
+	if e.ref == nil {
+		return nil, errGetInfoNil
+	}
+
+	var count C.int
+
+	return adoptWindows(C.NeruGetApplicationFocusedAndPopoverWindows(e.ref, &count), count), nil
+}
+
+// adoptWindows wraps a native array of +1 retained window refs and frees the
+// array.
+func adoptWindows(windows *unsafe.Pointer, count C.int) []*Element {
 	if windows == nil || count == 0 {
 		if windows != nil {
 			C.free(unsafe.Pointer(windows))
 		}
 
-		return []*Element{}, nil
+		return []*Element{}
 	}
 	defer C.free(unsafe.Pointer(windows))
 
@@ -577,12 +646,27 @@ func FrontmostAndPopoverWindows() ([]*Element, error) {
 		result[index] = newElement(windowSlice[index])
 	}
 
-	return result, nil
+	return result
 }
 
 // FrontmostWindow returns the frontmost window.
 func FrontmostWindow() *Element {
 	ref := C.NeruGetFrontmostWindow()
+	if ref == nil {
+		return nil
+	}
+
+	return newElement(ref)
+}
+
+// FocusedWindow is FrontmostWindow for this application element, whether or
+// not it is the focused application.
+func (e *Element) FocusedWindow() *Element {
+	if e.ref == nil {
+		return nil
+	}
+
+	ref := C.NeruGetApplicationFocusedWindow(e.ref)
 	if ref == nil {
 		return nil
 	}

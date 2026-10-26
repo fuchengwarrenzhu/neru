@@ -194,9 +194,11 @@ type handlerState struct {
 	// cannot reach the next session.
 	hintSearchSession uint64
 
-	// targetSelector picks the hint a --semantic search describes, within
-	// targetSelectionBudget. It is asked on a goroutine, never under h.mu, and
-	// its answer re-enters through the outer lock (hint_semantic.go).
+	// targetSelector picks the hint a --semantic search describes.
+	// targetSelectionBudget bounds the whole of one Return: the scan, the
+	// question and the second read of the answer. All three run on a
+	// goroutine, never under h.mu, and re-enter through the outer lock
+	// (hint_semantic.go).
 	targetSelector        ports.TargetSelector
 	targetSelectionBudget time.Duration
 	// semanticRequest counts selection requests. An answer carrying an older
@@ -208,6 +210,10 @@ type handlerState struct {
 	// semanticQuery is the query last submitted, so an edit can tell whether
 	// the status on screen still describes the text in the field.
 	semanticQuery string
+	// hintsFocus is the focused-app publication when hints last read the
+	// focused application. A semantic pick acts only while it is still the
+	// latest.
+	hintsFocus *string
 
 	// Pending modifier taps waiting to be committed after a short "no follow-up"
 	// window. A regular key press cancels all pending taps.
@@ -315,8 +321,9 @@ type HandlerDeps struct {
 	// TargetSelector picks the hint a --semantic search describes. Nil leaves
 	// such a search with nothing to ask, which it says in its status.
 	TargetSelector ports.TargetSelector
-	// TargetSelectionBudget bounds one selection; zero or less sets no bound
-	// beyond the handler's own context.
+	// TargetSelectionBudget bounds one semantic Return, its scan, question and
+	// second read together; zero or less sets no bound beyond the handler's
+	// own context and the scan's HintTimeout.
 	TargetSelectionBudget time.Duration
 
 	// Motion is the handler's namespace in the held-key glide controller.

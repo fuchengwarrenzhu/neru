@@ -68,12 +68,21 @@ enabled = true
    a search field opens.
 2. Type what you want, such as `the code menu` or `close this tab`. Typing
    filters nothing and sends nothing.
-3. Press `Return`. Neru asks once which outlined element you described, and
-   acts on it as if you had typed its label, so `--action`, `--repeat` and
-   `--on-exit` work as usual.
+3. Press `Return`. Neru reads the app's window again, so the outlines move to
+   where the controls are now, asks once which of them you described, reads
+   that control again, and acts on it where it is as if you had typed its
+   label, so `--action`, `--repeat` and `--on-exit` work as usual.
+
+Only controls in the app's window and its popovers can be picked. The Dock,
+the menu bar and the other surfaces hints can include keep their outlines and
+their labels for `Tab`, but are never offered, because Neru cannot read them
+again before the click.
 
 If no single element fits, nothing is clicked and the box says why: `no single
-match`, `no API key`, `timed out` or `selection failed`, with `…` while it waits.
+match`, `nothing to select`, `target changed` when the chosen control moved off
+screen, closed or is covered within its app, `no API key`, `timed out`, `scan
+failed` or `selection failed`, with `…` while it waits. Switching to another
+app before it answers drops the question.
 Edit the text and press `Return` again. Editing while it waits withdraws the
 question, so only what the field says when you press `Return` is acted on. `Tab` shows the labels and closes the
 field, and `Escape` leaves hints. The outlines are the
@@ -84,13 +93,14 @@ view is empty without it, and `neru config validate` warns about that.
 
 This is the only Neru feature that uses the network, and it is off unless a
 binding passes `--semantic`. Only when you press `Return`, it sends to
-`api.typesafe.ai` the text you typed and, for each outlined element, its role,
+`api.typesafe.ai` the text you typed and, for each element of the app's window
+and its popovers, its role,
 subrole, title, description, its parent's role and title, whether it opens a
 menu, and the focused app's bundle identifier, each cut to 200 characters. It
 never sends what is typed into fields, your keystrokes, screenshots, window
 or page titles or positions, and it logs neither your text nor any element's.
-Hints found by the `vision` strategy are never sent, since their text is read
-off your screen.
+Hints found by a strategy that reads the screen, such as `vision`, are never
+sent, since their text is read off your screen.
 
 The API key is read from `~/.config/credentials/typesafe-ai/apikey` on each
 request. Neru refuses it when other users can read the file or its directory,

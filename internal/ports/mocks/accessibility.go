@@ -4,6 +4,7 @@ import (
 	"context"
 	"image"
 
+	"github.com/y3owk1n/neru/internal/derrors"
 	"github.com/y3owk1n/neru/internal/domain/action"
 	"github.com/y3owk1n/neru/internal/domain/element"
 	"github.com/y3owk1n/neru/internal/ports"
@@ -24,6 +25,11 @@ type MockAccessibilityPort struct {
 	ReleaseHeldButtonsFunc            func(context.Context) error
 	UpdateClickableRolesFunc          func([]string)
 	UpdateMissionControlDetectionFunc func(bool)
+	// LeaseClickableElementsFunc answers ports.ElementLeaser. Left nil, the
+	// mock cannot lease and says so with CodeNotSupported.
+	LeaseClickableElementsFunc func(
+		context.Context, string, ports.ElementFilter,
+	) ([]*element.Element, ports.ElementLease, error)
 }
 
 // UpdateMissionControlDetection implements ports.AccessibilityPort.
@@ -132,5 +138,22 @@ func (m *MockAccessibilityPort) FocusedAppBundleID(ctx context.Context) (string,
 	return "", nil
 }
 
-// Ensure MockAccessibilityPort implements ports.AccessibilityPort.
-var _ ports.AccessibilityPort = (*MockAccessibilityPort)(nil)
+// LeaseClickableElements implements ports.ElementLeaser.
+func (m *MockAccessibilityPort) LeaseClickableElements(
+	ctx context.Context,
+	app string,
+	filter ports.ElementFilter,
+) ([]*element.Element, ports.ElementLease, error) {
+	if m.LeaseClickableElementsFunc != nil {
+		return m.LeaseClickableElementsFunc(ctx, app, filter)
+	}
+
+	return nil, nil, derrors.New(derrors.CodeNotSupported, "mock cannot lease elements")
+}
+
+// Ensure MockAccessibilityPort implements ports.AccessibilityPort and the
+// lease extension.
+var (
+	_ ports.AccessibilityPort = (*MockAccessibilityPort)(nil)
+	_ ports.ElementLeaser     = (*MockAccessibilityPort)(nil)
+)

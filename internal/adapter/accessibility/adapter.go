@@ -83,62 +83,7 @@ func (a *Adapter) ClickableElements(
 	ctx context.Context,
 	filter ports.ElementFilter,
 ) ([]*element.Element, error) {
-	ctxErr := a.checkContext(ctx)
-	if ctxErr != nil {
-		return nil, ctxErr
-	}
-
-	filter = lowerFilter(filter)
-
-	a.logger.Debug("Getting clickable elements",
-		zap.Int("role_count", len(filter.Roles)),
-		zap.Bool("include_menubar", filter.IncludeMenubar),
-		zap.Bool("include_dock", filter.IncludeDock),
-		zap.Bool("include_notification_center", filter.IncludeNotificationCenter),
-		zap.Bool("include_stage_manager", filter.IncludeStageManager),
-		zap.Bool("include_pip", filter.IncludePIP),
-		zap.Bool("include_screen_capture", filter.IncludeScreenCapture))
-
-	adapterStart := time.Now()
-
-	// Mission Control is checked once so that every source below sees the same
-	// answer, rather than each deciding separately as the state changes under
-	// them.
-	var missionControlActive bool
-	if a.detectMissionControl.Load() {
-		missionControlActive = a.client.IsMissionControlActive()
-	}
-
-	collector := newElementCollector(a.logger)
-
-	if !missionControlActive && !filter.SkipWindowElements {
-		collector.start(ctx, "windows", func() ([]*element.Element, error) {
-			return a.collectWindowElements(ctx, filter, collector)
-		})
-	}
-
-	if a.client.SupportsSupplementaryElements() {
-		for _, source := range a.supplementarySources(ctx, filter, missionControlActive) {
-			if !source.enabled {
-				continue
-			}
-
-			if missionControlActive && !source.duringMissionControl {
-				continue
-			}
-
-			collector.start(ctx, source.name, func() ([]*element.Element, error) {
-				return source.collect(), nil
-			})
-		}
-	}
-
-	awaitErr := collector.await(ctx)
-	if awaitErr != nil {
-		return nil, awaitErr
-	}
-
-	return a.finishCollection(collector, missionControlActive, adapterStart)
+	return a.clickableElements(ctx, filter, a.windowsToScan, nil)
 }
 
 func stringRoles(roles []element.Role) []string {
@@ -315,6 +260,74 @@ func (a *Adapter) UpdateClickableRoles(roles []string) {
 	a.client.SetClickableRoles(roles)
 }
 
+// clickableElements collects from every source the filter asks for, reading
+// the windows windowsToScan names. A lease keeps the platform references of
+// what those windows yield (LeaseClickableElements); ClickableElements passes
+// none.
+func (a *Adapter) clickableElements(
+	ctx context.Context,
+	filter ports.ElementFilter,
+	windowsToScan func(context.Context) ([]ax.Window, error),
+	lease *elementLease,
+) ([]*element.Element, error) {
+	ctxErr := a.checkContext(ctx)
+	if ctxErr != nil {
+		return nil, ctxErr
+	}
+
+	filter = lowerFilter(filter)
+
+	a.logger.Debug("Getting clickable elements",
+		zap.Int("role_count", len(filter.Roles)),
+		zap.Bool("include_menubar", filter.IncludeMenubar),
+		zap.Bool("include_dock", filter.IncludeDock),
+		zap.Bool("include_notification_center", filter.IncludeNotificationCenter),
+		zap.Bool("include_stage_manager", filter.IncludeStageManager),
+		zap.Bool("include_pip", filter.IncludePIP),
+		zap.Bool("include_screen_capture", filter.IncludeScreenCapture))
+
+	adapterStart := time.Now()
+
+	// Mission Control is checked once so that every source below sees the same
+	// answer, rather than each deciding separately as the state changes under
+	// them.
+	var missionControlActive bool
+	if a.detectMissionControl.Load() {
+		missionControlActive = a.client.IsMissionControlActive()
+	}
+
+	collector := newElementCollector(a.logger)
+
+	if !missionControlActive && !filter.SkipWindowElements {
+		collector.start(ctx, "windows", func() ([]*element.Element, error) {
+			return a.collectWindowElements(ctx, filter, collector, windowsToScan, lease)
+		})
+	}
+
+	if a.client.SupportsSupplementaryElements() {
+		for _, source := range a.supplementarySources(ctx, filter, missionControlActive) {
+			if !source.enabled {
+				continue
+			}
+
+			if missionControlActive && !source.duringMissionControl {
+				continue
+			}
+
+			collector.start(ctx, source.name, func() ([]*element.Element, error) {
+				return source.collect(), nil
+			})
+		}
+	}
+
+	awaitErr := collector.await(ctx)
+	if awaitErr != nil {
+		return nil, awaitErr
+	}
+
+	return a.finishCollection(collector, missionControlActive, adapterStart)
+}
+
 // checkContext checks if the context is canceled and returns an error if so.
 func (a *Adapter) checkContext(ctx context.Context) error {
 	select {
@@ -326,10 +339,12 @@ func (a *Adapter) checkContext(ctx context.Context) error {
 }
 
 // processClickableNodes converts and filters clickable nodes to domain elements.
+// A lease keeps the reference of each node that yields one.
 func (a *Adapter) processClickableNodes(
 	ctx context.Context,
 	clickableNodes []ax.Node,
 	filter ports.ElementFilter,
+	lease *elementLease,
 ) ([]*element.Element, error) {
 	elementsPtr, ok := elementSlicePool.Get().(*[]*element.Element)
 	if !ok {
@@ -373,6 +388,7 @@ func (a *Adapter) processClickableNodes(
 			ctx,
 			clickableNodes,
 			filter,
+			lease,
 		)
 
 		return concurrentElements, err
@@ -393,9 +409,14 @@ func (a *Adapter) processClickableNodes(
 
 		elem, err := a.convertToDomainElement(node)
 
+		kept := err == nil && a.MatchesFilter(elem, filter)
+		if kept {
+			lease.hold(node, elem)
+		}
+
 		// Release the underlying AXUIElementRef now that data has been
 		// extracted (or conversion failed). The domain element is a pure
-		// value copy and no longer needs the native ref.
+		// value copy and no longer needs the native ref; a lease has its own.
 		node.Release()
 
 		if err != nil {
@@ -404,7 +425,7 @@ func (a *Adapter) processClickableNodes(
 			continue
 		}
 
-		if a.MatchesFilter(elem, filter) {
+		if kept {
 			elements = append(elements, elem)
 		}
 	}
@@ -421,6 +442,7 @@ func (a *Adapter) processClickableNodesConcurrent(
 	ctx context.Context,
 	nodes []ax.Node,
 	filter ports.ElementFilter,
+	lease *elementLease,
 ) ([]*element.Element, int, error) {
 	numWorkers := min(
 		runtime.GOMAXPROCS(0),
@@ -469,6 +491,11 @@ func (a *Adapter) processClickableNodesConcurrent(
 
 				elem, err := a.convertToDomainElement(node)
 
+				kept := err == nil && a.MatchesFilter(elem, filter)
+				if kept {
+					lease.hold(node, elem)
+				}
+
 				// Release the underlying AXUIElementRef now that data has been
 				// extracted (or conversion failed).
 				node.Release()
@@ -479,7 +506,7 @@ func (a *Adapter) processClickableNodesConcurrent(
 					continue
 				}
 
-				if a.MatchesFilter(elem, filter) {
+				if kept {
 					localElements = append(localElements, elem)
 				}
 			}
@@ -512,6 +539,7 @@ func (a *Adapter) processClickableNodesConcurrent(
 var (
 	_ ports.AccessibilityPort = (*Adapter)(nil)
 	_ ports.ScrollCanceler    = (*Adapter)(nil)
+	_ ports.ElementLeaser     = (*Adapter)(nil)
 )
 
 // finishCollection reports what every source together produced.

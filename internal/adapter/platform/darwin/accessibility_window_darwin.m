@@ -80,6 +80,121 @@ void **NeruGetAllWindows(int *count) {
 	}
 }
 
+/// Copy the focused window plus the popover windows of an application. When
+/// none is focused the first window stands in for it.
+/// @param appRef Application reference, borrowed
+/// @param count Output parameter for number of returned windows, already zeroed
+/// @return Array of retained window references, or NULL when there are none
+static void **copyFocusedAndPopoverWindows(AXUIElementRef appRef, int *count) {
+	// Batch fetch focused window and all windows in a single AX call
+	CFArrayRef windowAttrs = CFArrayCreate(
+	    NULL,
+	    (CFTypeRef[]){
+	        kAXFocusedWindowAttribute,
+	        kAXWindowsAttribute,
+	    },
+	    2, &kCFTypeArrayCallBacks);
+	if (!windowAttrs)
+		return NULL;
+
+	CFArrayRef windowValues = NULL;
+	AXError batchError = AXUIElementCopyMultipleAttributeValues(appRef, windowAttrs, 0, &windowValues);
+	CFRelease(windowAttrs);
+
+	AXUIElementRef focusedWindow = NULL;
+	CFTypeRef windowsValue = NULL;
+	CFArrayRef windows = NULL;
+	CFIndex windowCount = 0;
+
+	if (batchError == kAXErrorSuccess && windowValues && CFArrayGetCount(windowValues) >= 2) {
+		CFTypeRef focusedVal = (CFTypeRef)CFArrayGetValueAtIndex(windowValues, 0);
+		if (focusedVal && CFGetTypeID(focusedVal) != CFNullGetTypeID()) {
+			focusedWindow = (AXUIElementRef)focusedVal;
+			CFRetain(focusedWindow);
+		}
+
+		CFTypeRef windowsVal = (CFTypeRef)CFArrayGetValueAtIndex(windowValues, 1);
+		if (windowsVal && CFGetTypeID(windowsVal) == CFArrayGetTypeID()) {
+			windowsValue = windowsVal;
+			CFRetain(windowsValue);
+			windows = (CFArrayRef)windowsValue;
+			windowCount = CFArrayGetCount(windows);
+		}
+	}
+
+	if (windowValues)
+		CFRelease(windowValues);
+
+	CFIndex capacity = (focusedWindow ? 1 : 0) + windowCount;
+	if (capacity == 0) {
+		if (windowsValue)
+			CFRelease(windowsValue);
+		if (focusedWindow)
+			CFRelease(focusedWindow);
+		return NULL;
+	}
+
+	void **result = (void **)malloc(capacity * sizeof(void *));
+	if (!result) {
+		if (windowsValue)
+			CFRelease(windowsValue);
+		if (focusedWindow)
+			CFRelease(focusedWindow);
+		return NULL;
+	}
+
+	if (focusedWindow) {
+		result[*count] = (void *)focusedWindow;
+		(*count)++;
+	} else if (windowCount > 0) {
+		AXUIElementRef firstWindow = (AXUIElementRef)CFArrayGetValueAtIndex(windows, 0);
+		if (firstWindow) {
+			CFRetain(firstWindow);
+			result[*count] = (void *)firstWindow;
+			(*count)++;
+		}
+	}
+
+	for (CFIndex i = 0; i < windowCount; i++) {
+		AXUIElementRef window = (AXUIElementRef)CFArrayGetValueAtIndex(windows, i);
+		if (!window)
+			continue;
+
+		if (focusedWindow && CFEqual(window, focusedWindow))
+			continue;
+		if (!focusedWindow && i == 0)
+			continue;
+
+		CFTypeRef roleValue = NULL;
+		if (AXUIElementCopyAttributeValue(window, kAXRoleAttribute, &roleValue) != kAXErrorSuccess || !roleValue) {
+			if (roleValue)
+				CFRelease(roleValue);
+			continue;
+		}
+
+		bool isPopover = CFGetTypeID(roleValue) == CFStringGetTypeID() &&
+		                 CFStringCompare((CFStringRef)roleValue, CFSTR("AXPopover"), 0) == kCFCompareEqualTo;
+		CFRelease(roleValue);
+
+		if (!isPopover)
+			continue;
+
+		CFRetain(window);
+		result[*count] = (void *)window;
+		(*count)++;
+	}
+
+	if (windowsValue)
+		CFRelease(windowsValue);
+
+	if (*count == 0) {
+		free(result);
+		return NULL;
+	}
+
+	return result;
+}
+
 /// Get focused window plus popover windows of the focused application.
 /// This keeps hint activation on one focused-app lookup and avoids asking Go
 /// to fetch each window role separately just to discover AXPopover siblings.
@@ -90,10 +205,7 @@ void **NeruGetFrontmostAndPopoverWindows(int *count) {
 	@autoreleasepool {
 		*count = 0;
 
-		AXUIElementRef focusedApp = (AXUIElementRef)NeruGetFocusedApplication();
-		AXUIElementRef appRef = focusedApp;
-		bool shouldReleaseAppRef = false;
-
+		AXUIElementRef appRef = (AXUIElementRef)NeruGetFocusedApplication();
 		if (!appRef) {
 			NSRunningApplication *front = [NSWorkspace sharedWorkspace].frontmostApplication;
 			if (!front)
@@ -102,145 +214,96 @@ void **NeruGetFrontmostAndPopoverWindows(int *count) {
 			appRef = AXUIElementCreateApplication(front.processIdentifier);
 			if (!appRef)
 				return NULL;
-
-			shouldReleaseAppRef = true;
 		}
 
-		// Batch fetch focused window and all windows in a single AX call
-		CFArrayRef windowAttrs = CFArrayCreate(
-		    NULL,
-		    (CFTypeRef[]){
-		        kAXFocusedWindowAttribute,
-		        kAXWindowsAttribute,
-		    },
-		    2, &kCFTypeArrayCallBacks);
-		if (!windowAttrs) {
-			if (shouldReleaseAppRef && appRef)
-				CFRelease(appRef);
-			else if (focusedApp)
-				CFRelease(focusedApp);
-			return NULL;
-		}
-
-		CFArrayRef windowValues = NULL;
-		AXError batchError = AXUIElementCopyMultipleAttributeValues(appRef, windowAttrs, 0, &windowValues);
-		CFRelease(windowAttrs);
-
-		AXUIElementRef focusedWindow = NULL;
-		CFTypeRef windowsValue = NULL;
-		CFArrayRef windows = NULL;
-		CFIndex windowCount = 0;
-
-		if (batchError == kAXErrorSuccess && windowValues && CFArrayGetCount(windowValues) >= 2) {
-			CFTypeRef focusedVal = (CFTypeRef)CFArrayGetValueAtIndex(windowValues, 0);
-			if (focusedVal && CFGetTypeID(focusedVal) != CFNullGetTypeID()) {
-				focusedWindow = (AXUIElementRef)focusedVal;
-				CFRetain(focusedWindow);
-			}
-
-			CFTypeRef windowsVal = (CFTypeRef)CFArrayGetValueAtIndex(windowValues, 1);
-			if (windowsVal && CFGetTypeID(windowsVal) == CFArrayGetTypeID()) {
-				windowsValue = windowsVal;
-				CFRetain(windowsValue);
-				windows = (CFArrayRef)windowsValue;
-				windowCount = CFArrayGetCount(windows);
-			}
-		}
-
-		if (windowValues)
-			CFRelease(windowValues);
-
-		CFIndex capacity = (focusedWindow ? 1 : 0) + windowCount;
-		if (capacity == 0) {
-			if (windowsValue)
-				CFRelease(windowsValue);
-			if (focusedWindow)
-				CFRelease(focusedWindow);
-			if (shouldReleaseAppRef && appRef)
-				CFRelease(appRef);
-			else if (focusedApp)
-				CFRelease(focusedApp);
-			return NULL;
-		}
-
-		void **result = (void **)malloc(capacity * sizeof(void *));
-		if (!result) {
-			if (windowsValue)
-				CFRelease(windowsValue);
-			if (focusedWindow)
-				CFRelease(focusedWindow);
-			if (shouldReleaseAppRef && appRef)
-				CFRelease(appRef);
-			else if (focusedApp)
-				CFRelease(focusedApp);
-			return NULL;
-		}
-
-		if (focusedWindow) {
-			result[*count] = (void *)focusedWindow;
-			(*count)++;
-		} else if (windowCount > 0) {
-			AXUIElementRef firstWindow = (AXUIElementRef)CFArrayGetValueAtIndex(windows, 0);
-			if (firstWindow) {
-				CFRetain(firstWindow);
-				result[*count] = (void *)firstWindow;
-				(*count)++;
-			}
-		}
-
-		for (CFIndex i = 0; i < windowCount; i++) {
-			AXUIElementRef window = (AXUIElementRef)CFArrayGetValueAtIndex(windows, i);
-			if (!window)
-				continue;
-
-			if (focusedWindow && CFEqual(window, focusedWindow))
-				continue;
-			if (!focusedWindow && i == 0)
-				continue;
-
-			CFTypeRef roleValue = NULL;
-			if (AXUIElementCopyAttributeValue(window, kAXRoleAttribute, &roleValue) != kAXErrorSuccess || !roleValue) {
-				if (roleValue)
-					CFRelease(roleValue);
-				continue;
-			}
-
-			bool isPopover = CFGetTypeID(roleValue) == CFStringGetTypeID() &&
-			                 CFStringCompare((CFStringRef)roleValue, CFSTR("AXPopover"), 0) == kCFCompareEqualTo;
-			CFRelease(roleValue);
-
-			if (!isPopover)
-				continue;
-
-			CFRetain(window);
-			result[*count] = (void *)window;
-			(*count)++;
-		}
-
-		if (windowsValue)
-			CFRelease(windowsValue);
-
-		if (shouldReleaseAppRef && appRef)
-			CFRelease(appRef);
-		else if (focusedApp)
-			CFRelease(focusedApp);
-
-		if (*count == 0) {
-			free(result);
-			return NULL;
-		}
+		void **result = copyFocusedAndPopoverWindows(appRef, count);
+		CFRelease(appRef);
 
 		return result;
 	}
+}
+
+/// Get the focused window plus popover windows of one application, whether or
+/// not it is the focused one.
+void **NeruGetApplicationFocusedAndPopoverWindows(void *app, int *count) {
+	if (!count)
+		return NULL;
+
+	*count = 0;
+
+	if (!app)
+		return NULL;
+
+	@autoreleasepool {
+		return copyFocusedAndPopoverWindows((AXUIElementRef)app, count);
+	}
+}
+
+/// Copy the focused window of an application, or its first window when none
+/// is focused.
+/// @param appRef Application reference, borrowed
+/// @return Retained window reference, or NULL when the application has none
+static void *copyFocusedWindow(AXUIElementRef appRef) {
+	// Batch fetch focused window and all windows in a single AX call
+	CFArrayRef windowAttrs = CFArrayCreate(
+	    NULL,
+	    (CFTypeRef[]){
+	        kAXFocusedWindowAttribute,
+	        kAXWindowsAttribute,
+	    },
+	    2, &kCFTypeArrayCallBacks);
+	if (!windowAttrs)
+		return NULL;
+
+	CFArrayRef windowValues = NULL;
+	AXError batchError = AXUIElementCopyMultipleAttributeValues(appRef, windowAttrs, 0, &windowValues);
+	CFRelease(windowAttrs);
+
+	AXUIElementRef window = NULL;
+	CFArrayRef windows = NULL;
+
+	if (batchError == kAXErrorSuccess && windowValues && CFArrayGetCount(windowValues) >= 2) {
+		CFTypeRef focusedVal = (CFTypeRef)CFArrayGetValueAtIndex(windowValues, 0);
+		if (focusedVal && CFGetTypeID(focusedVal) != CFNullGetTypeID()) {
+			window = (AXUIElementRef)focusedVal;
+			CFRetain(window);
+		}
+
+		CFTypeRef windowsVal = (CFTypeRef)CFArrayGetValueAtIndex(windowValues, 1);
+		if (windowsVal && CFGetTypeID(windowsVal) == CFArrayGetTypeID()) {
+			windows = (CFArrayRef)windowsVal;
+			CFRetain(windows);
+		}
+	}
+
+	if (windowValues)
+		CFRelease(windowValues);
+
+	if (window) {
+		if (windows)
+			CFRelease(windows);
+		return (void *)window;
+	}
+
+	// Fallback: use first window from the windows list
+	if (windows && CFArrayGetCount(windows) > 0) {
+		AXUIElementRef firstWindow = (AXUIElementRef)CFArrayGetValueAtIndex(windows, 0);
+		CFRetain(firstWindow);
+		CFRelease(windows);
+		return (void *)firstWindow;
+	}
+
+	if (windows)
+		CFRelease(windows);
+
+	return NULL;
 }
 
 /// Get frontmost window
 /// @return Frontmost window reference
 void *NeruGetFrontmostWindow(void) {
 	@autoreleasepool {
-		AXUIElementRef focusedApp = (AXUIElementRef)NeruGetFocusedApplication();
-		AXUIElementRef appRef = focusedApp;
-		bool shouldReleaseAppRef = false;
+		AXUIElementRef appRef = (AXUIElementRef)NeruGetFocusedApplication();
 
 		// Fall back to NSWorkspace if AX couldn't find the focused app
 		if (!appRef) {
@@ -252,79 +315,23 @@ void *NeruGetFrontmostWindow(void) {
 			appRef = AXUIElementCreateApplication(pid);
 			if (!appRef)
 				return NULL;
-
-			shouldReleaseAppRef = true;
 		}
 
-		// Batch fetch focused window and all windows in a single AX call
-		CFArrayRef windowAttrs = CFArrayCreate(
-		    NULL,
-		    (CFTypeRef[]){
-		        kAXFocusedWindowAttribute,
-		        kAXWindowsAttribute,
-		    },
-		    2, &kCFTypeArrayCallBacks);
-		if (!windowAttrs) {
-			if (shouldReleaseAppRef && appRef)
-				CFRelease(appRef);
-			else if (focusedApp)
-				CFRelease(focusedApp);
-			return NULL;
-		}
+		void *window = copyFocusedWindow(appRef);
+		CFRelease(appRef);
 
-		CFArrayRef windowValues = NULL;
-		AXError batchError = AXUIElementCopyMultipleAttributeValues(appRef, windowAttrs, 0, &windowValues);
-		CFRelease(windowAttrs);
+		return window;
+	}
+}
 
-		AXUIElementRef window = NULL;
-		CFArrayRef windows = NULL;
-
-		if (batchError == kAXErrorSuccess && windowValues && CFArrayGetCount(windowValues) >= 2) {
-			CFTypeRef focusedVal = (CFTypeRef)CFArrayGetValueAtIndex(windowValues, 0);
-			if (focusedVal && CFGetTypeID(focusedVal) != CFNullGetTypeID()) {
-				window = (AXUIElementRef)focusedVal;
-				CFRetain(window);
-			}
-
-			CFTypeRef windowsVal = (CFTypeRef)CFArrayGetValueAtIndex(windowValues, 1);
-			if (windowsVal && CFGetTypeID(windowsVal) == CFArrayGetTypeID()) {
-				windows = (CFArrayRef)windowsVal;
-				CFRetain(windows);
-			}
-		}
-
-		if (windowValues)
-			CFRelease(windowValues);
-
-		if (shouldReleaseAppRef && appRef) {
-			CFRelease(appRef);
-		}
-
-		if (window) {
-			if (focusedApp)
-				CFRelease(focusedApp);
-			if (windows)
-				CFRelease(windows);
-			return (void *)window;
-		}
-
-		// Fallback: use first window from the windows list
-		if (windows && CFArrayGetCount(windows) > 0) {
-			AXUIElementRef firstWindow = (AXUIElementRef)CFArrayGetValueAtIndex(windows, 0);
-			CFRetain(firstWindow);
-			CFRelease(windows);
-			if (focusedApp)
-				CFRelease(focusedApp);
-			return (void *)firstWindow;
-		}
-
-		if (windows)
-			CFRelease(windows);
-
-		if (focusedApp)
-			CFRelease(focusedApp);
-
+/// Get the focused window of one application, whether or not it is the
+/// focused one.
+void *NeruGetApplicationFocusedWindow(void *app) {
+	if (!app)
 		return NULL;
+
+	@autoreleasepool {
+		return copyFocusedWindow((AXUIElementRef)app);
 	}
 }
 

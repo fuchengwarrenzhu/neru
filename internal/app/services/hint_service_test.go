@@ -1636,3 +1636,94 @@ func TestHintService_GenerateHintsSegment_PassesTargets(t *testing.T) {
 		t.Errorf("detector got targets %q, want %q", got, domain.SegmentTargetsControls)
 	}
 }
+
+// TestHintService_LeaseHints_LeasesOnlyWhatItCanReadAgain pins the two ways a
+// leased scan hands nothing back: a strategy that reads the screen is refused
+// before anything is scanned, and a scan that finds nothing gives its lease
+// back rather than leaving it with a caller that has no hint to use it on.
+func TestHintService_LeaseHints_LeasesOnlyWhatItCanReadAgain(t *testing.T) {
+	const app = "com.example.Editor"
+
+	button, buttonErr := element.NewElement("save", image.Rect(10, 10, 90, 40), element.RoleButton)
+	if buttonErr != nil {
+		t.Fatalf("NewElement() error = %v", buttonErr)
+	}
+
+	tests := []struct {
+		name      string
+		strategy  string
+		found     []*element.Element
+		wantCode  derrors.Code
+		wantScans int
+		wantHints int
+		wantLease bool
+	}{
+		{
+			name:     "a strategy that reads the screen",
+			strategy: domain.StrategyVision,
+			wantCode: derrors.CodeNotSupported,
+		},
+		{
+			name:      "nothing found",
+			wantScans: 1,
+		},
+		{
+			name:      "elements found",
+			found:     []*element.Element{button},
+			wantScans: 1,
+			wantHints: 1,
+			wantLease: true,
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			lease := &mocks.MockElementLease{}
+			scans := 0
+
+			accessibility := &mocks.MockAccessibilityPort{
+				LeaseClickableElementsFunc: func(
+					_ context.Context, scanned string, _ ports.ElementFilter,
+				) ([]*element.Element, ports.ElementLease, error) {
+					scans++
+
+					if scanned != app {
+						t.Errorf("scanned %q, want %q", scanned, app)
+					}
+
+					return testCase.found, lease, nil
+				},
+			}
+
+			generator, _ := hint.NewAlphabetGenerator("asdf", hint.LabelDirectionNormal)
+			service := services.NewHintService(accessibility, &mocks.MockOverlayPort{},
+				&mocks.MockSystemPort{}, generator, config.DefaultConfig().Hints, zap.NewNop(), nil)
+
+			hints, got, err := service.LeaseHints(context.Background(), app, nil, nil,
+				testCase.strategy, "")
+
+			if code := derrors.GetCode(err); err != nil && code != testCase.wantCode ||
+				err == nil && testCase.wantCode != "" {
+				t.Fatalf("LeaseHints() error = %v, want code %q", err, testCase.wantCode)
+			}
+
+			if scans != testCase.wantScans || len(hints) != testCase.wantHints {
+				t.Errorf("scans = %d with %d hints, want %d with %d",
+					scans, len(hints), testCase.wantScans, testCase.wantHints)
+			}
+
+			if (got != nil) != testCase.wantLease {
+				t.Errorf("returned a lease = %v, want %v", got != nil, testCase.wantLease)
+			}
+
+			wantReleases := 0
+			if testCase.wantScans > 0 && !testCase.wantLease {
+				wantReleases = 1
+			}
+
+			if releases := lease.Releases(); releases != wantReleases {
+				t.Errorf("lease released %d times, want %d", releases, wantReleases)
+			}
+		})
+	}
+}
